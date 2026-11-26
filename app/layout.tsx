@@ -4,8 +4,8 @@ import { Toaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
-  title: "Collective | Sales & Recovery",
-  description: "One connected workspace for sales, recovery, and your team.",
+  title: "Persevex | Technology & Management Courses",
+  description: "Explore technology and management courses from Persevex. Contact our team for program details, registration, and course access.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

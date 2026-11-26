@@ -255,3 +255,19 @@ body:has(.app-shell) { overflow:hidden; }
 @keyframes statistics-fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes statistics-fade-out { from { opacity: 1; } to { opacity: 0; } }
 @media(prefers-reduced-motion:reduce) { .statistics-panel,.statistics-panel-overlay { animation-duration: 1ms !important; } }
+.landing-footer-links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; }
+.landing-footer-links a { text-decoration: underline; text-underline-offset: 3px; }
+.terms-content { width: 100%; max-width: 850px; margin: 24px auto 64px; padding: 0 24px; }
+.terms-content h1 { margin-bottom: 12px; }
+.terms-updated { color: var(--muted-foreground); font-size: 14px; }
+.terms-content section { margin-top: 28px; }
+.terms-content h2 { margin-bottom: 8px; font-size: 19px; }
+.terms-content p { line-height: 1.8; }
+.terms-sign-in { display: inline-block; color: var(--primary); margin-top: 16px; text-decoration: underline; text-underline-offset: 3px; }
+.public-info-footer { margin-top: 36px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 14px; }
+.landing-bottom > .landing-footer-links { justify-content: flex-end; }
+@media(max-width:750px) { .landing-bottom > .landing-footer-links { justify-content: flex-start; } }
+.business-contact { display: flex; flex-direction: column; gap: 7px; font-style: normal; font-size: 14px; line-height: 1.7; max-width: 580px; }
+.business-contact a { text-decoration: underline; text-underline-offset: 3px; }
+.public-info-footer .business-contact { margin-bottom: 22px; }
+.landing-bottom > nav { align-content: flex-start; max-width: 450px; }
