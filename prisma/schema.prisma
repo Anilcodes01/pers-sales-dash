@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+model Team {
+  id String @id @default(uuid()) @db.Uuid
+  name String @db.VarChar(100)
+  nameKey String @unique @map("name_key") @db.VarChar(100)
+  createdBy String? @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  members TeamMembership[]
+  @@map("teams")
+}
+model TeamMembership {
+  userId String @id @map("user_id") @db.Uuid
+  teamId String @map("team_id") @db.Uuid
+  assignedBy String? @map("assigned_by") @db.Uuid
+  assignedAt DateTime @default(now()) @updatedAt @map("assigned_at") @db.Timestamptz(6)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Restrict)
+  @@index([teamId])
+  @@map("team_memberships")
+}
+
+model SalesImport {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  reportingMonth DateTime @map("reporting_month") @db.Date
+  filename String @db.VarChar(255)
+  rowCount Int @map("row_count")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  records SalesRecord[]
+  @@index([ownerId, reportingMonth])
+  @@map("sales_imports")
+}
+model SalesRecord {
+  id String @id @default(uuid()) @db.Uuid
+  ownerId String @map("owner_id") @db.Uuid
+  reportingMonth DateTime @map("reporting_month") @db.Date
+  dateFromCsv DateTime? @map("date_from_csv") @db.Date
+  name String @db.Text
+  college String @db.Text
+  emailId String? @map("email_id") @db.Text
+  phone String? @db.Text
+  whatsapp String? @db.Text
+  programPlan String @map("program_plan") @db.Text
+  totalAmountPaise Int? @map("total_amount")
+  registrationAmountPaise Int? @map("registration_amount")
+  comments String? @db.Text
+  rawValues Json @default("{}") @map("raw_values")
+  rowHash String @map("row_hash") @db.VarChar(64)
+  sourceRow Int @map("source_row")
+  importId String @map("import_id") @db.Uuid
+  import SalesImport @relation(fields: [importId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@unique([ownerId, reportingMonth, rowHash])
+  @@index([ownerId, reportingMonth, dateFromCsv])
+  @@map("sales_records")
+}
