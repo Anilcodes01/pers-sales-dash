@@ -1,3 +1,4 @@
+import { isAllowedOrigin } from "@/lib/auth/origin";
 import { NextResponse, type NextRequest } from "next/server";
 import { createAuthClient } from "@/lib/supabase/server";
 import { dashboardPath } from "@/lib/auth/dashboard-routing";
@@ -8,7 +9,7 @@ function reply(body: object, status = 200) {
 }
 
 export async function POST(request: NextRequest, context: { params: Promise<{ action: string }> }) {
-  if (request.headers.get("origin") !== request.nextUrl.origin) return reply({ error: "Request origin is not allowed." }, 403);
+  if (!isAllowedOrigin(request)) return reply({ error: "Request origin is not allowed." }, 403);
   const { action } = await context.params;
   if (!["login", "logout"].includes(action)) return reply({ error: "Not found." }, 404);
   if (!authConfigured()) return reply({ error: "Authentication is not configured yet. Ask your administrator to complete setup." }, 503);

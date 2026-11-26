@@ -15,7 +15,7 @@ function load(file, options = {}) {
     if (cache.has(filename)) return cache.get(filename);
     const exports = {}; cache.set(filename, exports);
     const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-    vm.runInNewContext(code, { exports, URL, Buffer, Response, File, TextDecoder, process: { env: {} }, require(name) {
+    vm.runInNewContext(code, { exports, URL, Buffer, Response, File, TextDecoder, process: { env: options.env || {} }, require(name) {
       if (name === 'server-only') return {};
       if (name === '@/lib/db') return { db: () => { options.onDb?.(); return options.db; } };
       if (name === 'next/navigation') return { redirect: (destination) => { throw new Error(`REDIRECT:${destination}`); } };
@@ -355,4 +355,22 @@ test('admin sales filter options include team leaders and paginate through Auth 
   const db = { team: { findMany: async () => [] }, salesRecord: { findMany: async input => input.distinct[0] === 'reportingMonth' ? [{ reportingMonth: new Date('2026-05-01T00:00:00Z') }] : [] }, $transaction: async values => Promise.all(values) };
   const api = load('app/api/main-admin/sales/options/route.ts', { user: mainAdmin, db, admin: { listUsers: async ({ page }) => { pages.push(page); return { data: { users: page === 1 ? [member] : [leader, mainAdmin], nextPage: page === 1 ? 2 : null } }; } } });
   const result = await api.GET(); assert.equal(result.status, 200); assert.equal(pages.join(','), '1,2'); assert.equal(result.body.people.length, 2); assert.equal(result.body.months[0], '2026-05');
+});
+
+ test('Amplify public origin reaches credential validation behind internal host', async () => {
+  const result = await load(authFile, { env: { APP_URL: 'https://main.example.amplifyapp.com' }, client: { auth: { signInWithPassword: async () => ({ error: { status: 400 } }) } } }).POST(request({ email: member.email, password: 'incorrect' }, 'https://main.example.amplifyapp.com', 'http://internal:3000/api/auth/login'), context('login'));
+  assert.equal(result.status, 401);
+});
+test('configured public origin rejects other origins and forged forwarded hosts', () => {
+  const { isAllowedOrigin } = load('lib/auth/origin.ts', { env: { APP_URL: 'https://main.example.amplifyapp.com/' } });
+  const req = request({}, 'https://evil.example');
+  req.headers.set('x-forwarded-host', 'evil.example');
+  assert.equal(isAllowedOrigin(req), false);
+  req.headers.delete('origin'); assert.equal(isAllowedOrigin(req), false);
+  req.headers.set('origin', 'null'); assert.equal(isAllowedOrigin(req), false);
+  req.headers.set('origin', 'https://main.example.amplifyapp.com/path'); assert.equal(isAllowedOrigin(req), false);
+  req.headers.set('origin', 'https://main.example.amplifyapp.com'); assert.equal(isAllowedOrigin(req), true);
+});
+test('invalid APP_URL fails closed', () => {
+  assert.equal(load('lib/auth/origin.ts', { env: { APP_URL: 'invalid' } }).isAllowedOrigin(request()), false);
 });

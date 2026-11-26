@@ -6,10 +6,13 @@
 
 Add these environment variables for the deployment branch:
 
+- `APP_URL` — the public HTTPS origin of this branch (for example, `https://main.example.amplifyapp.com`). Used to validate write requests behind Amplify’s proxy.
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
 - `SUPABASE_SECRET_KEY`
 - `DATABASE_URL` — Supabase pooled runtime connection, including `pgbouncer=true` for transaction mode.
+
+Redeploy after changing environment variables: the SSR runtime receives them from the build-generated `.env.production`.
 
 `DIRECT_URL` is only needed in your separate migration workflow; it is intentionally not included in the runtime environment file. Apply reviewed migrations separately before deploying features that require them. The repository currently has no baseline migration history in the runtime database, so do not blindly run all migrations against its existing tables.
 

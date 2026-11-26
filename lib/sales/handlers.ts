@@ -1,10 +1,11 @@
+import { isAllowedOrigin } from "@/lib/auth/origin";
 import type { NextRequest } from "next/server";
 import { AccessError } from "@/lib/auth/admin-access";
 import { json, apiError } from "@/lib/auth/http";
 import { MAX_FILE_BYTES, parseSalesCsv, reportingMonth } from "./csv";
 import { importSales, listSales, requireSalesUser, type SalesRole } from "./service";
 async function boundedForm(request: NextRequest) {
-  if (request.headers.get("origin") !== request.nextUrl.origin) throw new AccessError(403, "Request origin is not allowed.");
+  if (!isAllowedOrigin(request)) throw new AccessError(403, "Request origin is not allowed.");
   const type = request.headers.get("content-type") || "";
   if (!type.startsWith("multipart/form-data;")) throw new AccessError(415, "Upload a CSV using the file picker.");
   const limit = MAX_FILE_BYTES + 64 * 1024;

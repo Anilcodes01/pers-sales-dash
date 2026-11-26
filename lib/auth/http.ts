@@ -1,3 +1,4 @@
+import { isAllowedOrigin } from "@/lib/auth/origin";
 import { NextResponse, type NextRequest } from "next/server";
 import { AccessError } from "./admin-access";
 export function json(body: object, status = 200) {
@@ -12,7 +13,7 @@ export function apiError(error: unknown) {
   return error instanceof AccessError ? json({ error: error.message }, error.status) : json({ error: "Service is unavailable. Check the database connection or retry." }, 503);
 }
 export async function readAdminBody(request: NextRequest) {
-  if (request.headers.get("origin") !== request.nextUrl.origin) throw new AccessError(403, "Request origin is not allowed.");
+  if (!isAllowedOrigin(request)) throw new AccessError(403, "Request origin is not allowed.");
   if (!request.headers.get("content-type")?.includes("application/json")) throw new AccessError(415, "Send a JSON request.");
   const reader = request.body?.getReader();
   if (!reader) throw new AccessError(400, "Request body is required.");
