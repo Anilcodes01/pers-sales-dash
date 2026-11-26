@@ -62,3 +62,36 @@ model SalesRecord {
   @@index([ownerId, reportingMonth, dateFromCsv])
   @@map("sales_records")
 }
+
+model RecoveryLead {
+  comments String @default("") @db.Text
+  assignedTo String? @map("assigned_to") @db.Uuid
+  assignedBy String? @map("assigned_by") @db.Uuid
+  assignedAt DateTime? @map("assigned_at") @db.Timestamptz(6)
+  id String @id @default(uuid()) @db.Uuid
+  uploadedBy String @map("uploaded_by") @db.Uuid
+  uploadId String @map("upload_id") @db.Uuid
+  filename String @db.VarChar(255)
+  sourceRow Int @map("source_row")
+  timestamp String @map("timestamp") @db.Text
+  studentName String @map("student_name") @db.Text
+  studentPhone String @map("student_phone") @db.Text
+  studentEmail String @map("student_email") @db.Text
+  studentCollegeEmail String @map("student_college_email") @db.Text
+  executiveName String @map("executive_name") @db.Text
+  amountMentioned String @map("amount_mentioned") @db.Text
+  registrationAmount String @map("registration_amount") @db.Text
+  programPlan String @map("program_plan") @db.Text
+  domain String @map("domain") @db.Text
+  selectedMonth String @map("selected_month") @db.Text
+  referrals String @map("referrals") @db.Text
+  paymentStatus String @map("payment_status") @db.Text
+  leadStatus String @map("lead_status") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@index([createdAt, id])
+  @@index([assignedTo, selectedMonth])
+  @@index([selectedMonth])
+  @@index([uploadId])
+  @@map("recovery_leads")
+}

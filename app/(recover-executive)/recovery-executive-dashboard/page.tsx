@@ -1,4 +1,3 @@
-import { Suspense } from "react";
-import { Dashboard } from "@/components/dashboard";
-export const metadata = { title: "Dashboard | Collective" };
-export default function Page() { return <Suspense fallback={<p className="page-loading">Loading dashboard…</p>}><Dashboard role="recovery_executive"/></Suspense>; }
+import { RecoveryAllocation } from "@/components/recovery-allocation";
+export const metadata = { title: "My recovery calls | Collective" };
+export default function Page() { return <main className="users-content recovery-sheet-content"><section className="admin-heading"><h1>My recovery calls</h1><p>Students allocated to you for recovery follow-up.</p></section><RecoveryAllocation executive/></main>; }

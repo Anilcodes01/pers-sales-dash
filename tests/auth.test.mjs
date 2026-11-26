@@ -374,3 +374,212 @@ test('configured public origin rejects other origins and forged forwarded hosts'
 test('invalid APP_URL fails closed', () => {
   assert.equal(load('lib/auth/origin.ts', { env: { APP_URL: 'invalid' } }).isAllowedOrigin(request()), false);
 });
+
+const recoveryFile = 'app/api/recovery-admin/leads/route.ts';
+const recoveryHeader = fs.readFileSync('public/recovery-leads-template.csv', 'utf8').trim();
+const recoveryLine = 'unknown date,,+91 123,not-an-email,,Executive,amount pending,,Plan,Domain,May,Yes,Pending,New';
+test('recovery CSV preserves all cells, blanks, and repeated students', () => {
+  const { parseRecoveryCsv } = load('lib/recovery/csv.ts');
+  const rows = parseRecoveryCsv(recoveryHeader + '\n' + recoveryLine + '\n' + recoveryLine);
+  assert.equal(rows.length, 2); assert.equal(rows[0].studentName, '');
+  assert.equal(rows[0].studentPhone, '+91 123'); assert.equal(rows[0].amountMentioned, 'amount pending');
+  assert.equal(rows[0].timestamp, 'unknown date'); assert.equal(rows[0].studentEmail, 'not-an-email');
+  assert.throws(() => parseRecoveryCsv('Student Name\nExample'), /column/);
+  assert.throws(() => parseRecoveryCsv(recoveryHeader + '\n' + Array(5001).fill(recoveryLine).join('\n')), /5,000/);
+});
+test('recovery leads reject all other roles before database access', async () => {
+  for (const user of [null, member, mainAdmin, { ...member, app_metadata: { role: 'team_leader' } }, { ...member, app_metadata: { role: 'recovery_executive' } }]) {
+    const handlers = load(recoveryFile, { user, onDb: () => assert.fail('database accessed') });
+    assert.equal((await handlers.GET(request())).status, user ? 403 : 401);
+    assert.equal((await handlers.POST(csvRequest(recoveryHeader + '\n' + recoveryLine))).status, user ? 403 : 401);
+  }
+});
+test('recovery preview does not save and import retains every student under authenticated uploader', async () => {
+  const user = { ...member, app_metadata: { role: 'recovery_admin' } };
+  let saved;
+  const handlers = load(recoveryFile, { user, db: { $transaction: async callback => callback({ recoveryLead: { createMany: async ({ data }) => { saved = data; return { count: data.length }; } } }) } });
+  const preview = await handlers.POST(csvRequest(recoveryHeader + '\n' + recoveryLine));
+  assert.equal(preview.body.totalRows, 1); assert.equal(saved, undefined);
+  const req = csvRequest(recoveryHeader + '\n' + recoveryLine + '\n' + recoveryLine, 'import');
+  const result = await handlers.POST(req);
+  assert.equal(result.status, 201); assert.equal(result.body.imported, 2);
+  assert.equal(saved.length, 2); assert.equal(saved[0].uploadedBy, member.id);
+});
+test('recovery upload rejects foreign origins and invalid files before storage', async () => {
+  const handlers = load(recoveryFile, { user: { ...member, app_metadata: { role: 'recovery_admin' } }, onDb: () => assert.fail('database accessed') });
+  const cross = csvRequest(recoveryHeader + '\n' + recoveryLine); cross.headers.set('origin', 'https://other.example');
+  assert.equal((await handlers.POST(cross)).status, 403);
+  assert.equal((await handlers.POST(csvRequest('wrong header\nvalue'))).status, 400);
+  const oversized = csvRequest(recoveryHeader); oversized.headers.set('content-length', String(6 * 1024 * 1024));
+  assert.equal((await handlers.POST(oversized)).status, 413);
+});
+
+const recoveryAdmin = { ...member, app_metadata: { role: 'recovery_admin' } };
+const recoveryExecutive = { ...member, app_metadata: { role: 'recovery_executive' } };
+test('allocation endpoints deny other roles before database or privileged Auth access', async () => {
+  for (const user of [null, member, mainAdmin, recoveryExecutive]) {
+    const options = { user, onDb: () => assert.fail('database accessed'), onAdminClient: () => assert.fail('Auth admin accessed') };
+    const route = load('app/api/recovery-admin/allocation/route.ts', options);
+    assert.equal((await route.GET(request())).status, user ? 403 : 401);
+    assert.equal((await route.POST(request())).status, user ? 403 : 401);
+    assert.equal((await load('app/api/recovery-admin/allocation/options/route.ts', options).GET()).status, user ? 403 : 401);
+  }
+});
+test('allocation validates target role and updates only selected students in the chosen month', async () => {
+  let update;
+  const options = { user: recoveryAdmin, admin: { getUserById: async () => ({ data: { user: recoveryExecutive }, error: null }) }, db: { $transaction: async callback => callback({ recoveryLead: { count: async () => 1, updateMany: async args => { update = args; return { count: 1 }; } } }) } };
+  const { allocateLeads } = load('lib/recovery/allocation.ts', options);
+  assert.equal((await allocateLeads(mainAdmin.id, { ids: [member.id], month: 'May', assignedTo: member.id })).updated, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(update.where)), { id: { in: [member.id] }, selectedMonth: 'May' });
+  assert.equal(update.data.assignedTo, member.id); assert.equal(update.data.assignedBy, mainAdmin.id);
+  await allocateLeads(mainAdmin.id, { ids: [member.id], month: 'May', assignedTo: null }); assert.equal(update.data.assignedTo, null);
+  await assert.rejects(() => allocateLeads(mainAdmin.id, { ids: [], month: 'May', assignedTo: member.id }), /Select 1/);
+  const wrongRole = load('lib/recovery/allocation.ts', { admin: { getUserById: async () => ({ data: { user: member } }) }, onDb: () => assert.fail('database accessed') });
+  await assert.rejects(() => wrongRole.allocateLeads(mainAdmin.id, { ids: [member.id], month: 'May', assignedTo: member.id }), /active recovery executive/);
+});
+test('allocation rejects students outside the selected month without updating', async () => {
+  const { allocateLeads } = load('lib/recovery/allocation.ts', { db: { $transaction: async callback => callback({ recoveryLead: { count: async () => 0, updateMany: () => assert.fail('updated mismatched students') } }) } });
+  await assert.rejects(() => allocateLeads(mainAdmin.id, { ids: [member.id], month: 'June', assignedTo: null }), /no longer in this month/);
+});
+test('executive call list always scopes records and counts to signed-in assignee', async () => {
+  const queries = [];
+  const handlers = load('app/api/recovery-executive/leads/route.ts', { user: recoveryExecutive, db: { recoveryLead: { findMany: args => { queries.push(args); return []; }, count: args => { queries.push(args); return 0; } }, $transaction: async values => Promise.all(values) } });
+  const response = await handlers.GET(request({}, 'http://localhost:3000', `http://localhost:3000/api/recovery-executive/leads?assignedTo=${mainAdmin.id}`));
+  assert.equal(response.body.total, 0);
+  for (const query of queries) assert.equal(query.where.assignedTo, member.id);
+  assert.equal(queries[0].skip, undefined); assert.equal(queries[0].take, undefined);
+  assert.equal((await load('app/api/recovery-executive/leads/route.ts', { user: recoveryAdmin, onDb: () => assert.fail('database accessed') }).GET(request())).status, 403);
+});
+test('allocation POST rejects foreign origins even for recovery admin', async () => {
+  const route = load('app/api/recovery-admin/allocation/route.ts', { user: recoveryAdmin, onDb: () => assert.fail('database accessed') });
+  assert.equal((await route.POST(request({}, 'https://other.example'))).status, 403);
+});
+test('allocation listing returns the entire selected CSV month without pagination', async () => {
+  let query;
+  const route = load('app/api/recovery-admin/allocation/route.ts', { user: recoveryAdmin, db: { recoveryLead: { findMany: args => { query = args; return []; }, count: () => 110 }, $transaction: async values => Promise.all(values) } });
+  const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-admin/allocation?month=May&page=2'));
+  assert.equal(query.where.selectedMonth, 'May'); assert.equal(query.skip, undefined); assert.equal(query.take, undefined); assert.equal(result.body.total, 110);
+});
+test('allocation accepts a full-month selection larger than 100 students', async () => {
+  const ids = Array.from({ length: 335 }, (_, index) => `11111111-1111-4111-8111-${String(index).padStart(12, '0')}`);
+  let updated;
+  const { allocateLeads } = load('lib/recovery/allocation.ts', { db: { $transaction: async callback => callback({ recoveryLead: { count: async () => ids.length, updateMany: async args => { updated = args.where.id.in; return { count: ids.length }; } } }) } });
+  assert.equal((await allocateLeads(mainAdmin.id, { ids, month: 'November', assignedTo: null })).updated, 335);
+  assert.equal(updated.length, 335);
+});
+test('allocation JSON body limit permits a full month while ordinary admin requests remain bounded', async () => {
+  const { readAdminBody } = load('lib/auth/http.ts');
+  const body = { ids: Array.from({ length: 335 }, () => member.id), month: 'November', assignedTo: null };
+  await assert.rejects(() => readAdminBody(request(body)), /too large/);
+  assert.equal((await readAdminBody(request(body), 1024 * 1024)).ids.length, 335);
+});
+test('spreadsheet range selection works forwards, backwards, and with additive ranges', () => {
+  const { selectionRange } = load('lib/recovery/selection.ts');
+  const ids = ['a', 'b', 'c', 'd', 'e'];
+  const plain = value => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(plain(selectionRange(ids, 1, 3)), ['b', 'c', 'd']);
+  assert.deepEqual(plain(selectionRange(ids, 3, 1)), ['b', 'c', 'd']);
+  assert.deepEqual(plain(selectionRange(ids, 1, 1)), ['b']);
+  assert.deepEqual(plain(selectionRange(ids, 1, 2, ['e', 'b'])), ['e', 'b', 'c']);
+  assert.deepEqual(plain(selectionRange(ids, 1, 2)), ['b', 'c']);
+});
+
+const statusFile = 'app/api/recovery-executive/leads/[id]/route.ts';
+const statusContext = { params: Promise.resolve({ id: member.id }) };
+test('status updates require a recovery executive and reject cross-origin requests', async () => {
+  for (const user of [null, member, mainAdmin, recoveryAdmin]) {
+    const route = load(statusFile, { user, onDb: () => assert.fail('database accessed') });
+    assert.equal((await route.PATCH(request({ paymentStatus: 'paid' }), statusContext)).status, user ? 403 : 401);
+  }
+  const route = load(statusFile, { user: recoveryExecutive, onDb: () => assert.fail('database accessed') });
+  assert.equal((await route.PATCH(request({ paymentStatus: 'paid' }, 'https://other.example'), statusContext)).status, 403);
+});
+test('executive status writes are scoped atomically to the current assignee and only change provided fields', async () => {
+  let query;
+  const route = load(statusFile, { user: recoveryExecutive, db: { recoveryLead: { updateMany: async args => { query = args; return { count: 1 }; } } } });
+  const result = await route.PATCH(request({ paymentStatus: 'paid' }), statusContext);
+  assert.equal(result.body.paymentStatus, 'paid'); assert.equal(query.where.id, member.id); assert.equal(query.where.assignedTo, recoveryExecutive.id);
+  assert.equal(query.data.leadStatus, undefined); assert.ok(query.data.updatedAt);
+  const custom = await route.PATCH(request({ comments: 'Call next Friday' }), statusContext);
+  assert.equal(custom.body.comments, 'Call next Friday'); assert.equal(query.data.leadStatus, undefined); assert.equal(query.data.paymentStatus, undefined);
+});
+test('status update fails safely after reassignment without leaking other students', async () => {
+  const route = load(statusFile, { user: recoveryExecutive, db: { recoveryLead: { updateMany: async () => ({ count: 0 }) } } });
+  assert.equal((await route.PATCH(request({ leadStatus: 'called' }), statusContext)).status, 404);
+});
+test('status validation rejects invalid payments, blank or long custom statuses, and other fields', async () => {
+  const route = load(statusFile, { user: recoveryExecutive, onDb: () => assert.fail('database accessed') });
+  for (const body of [{ paymentStatus: 'anything' }, { leadStatus: '' }, { leadStatus: '   ' }, { leadStatus: 'x'.repeat(201) }, { assignedTo: mainAdmin.id }, { studentPhone: '123' }, {}]) {
+    assert.equal((await route.PATCH(request(body), statusContext)).status, 400);
+  }
+});
+test('recovery overview denies other roles before data or privileged Auth access', async () => {
+  for (const user of [null, member, mainAdmin, recoveryExecutive]) {
+    const route = load('app/api/recovery-admin/overview/route.ts', { user, onDb: () => assert.fail('database accessed'), onAdminClient: () => assert.fail('Auth accessed') });
+    assert.equal((await route.GET(request())).status, user ? 403 : 401);
+  }
+});
+test('recovery overview returns full records and filters exact CSV months including blanks', async () => {
+  const queries = [];
+  const route = load('app/api/recovery-admin/overview/route.ts', { user: recoveryAdmin, admin: { listUsers: async () => ({ data: { users: [] }, error: null }) }, db: { recoveryLead: { findMany: async query => { queries.push(query); return []; } } } });
+  for (const suffix of ['', '?month=November', '?month=']) {
+    queries.length = 0;
+    const result = await route.GET(request({}, 'http://localhost:3000', `http://localhost:3000/api/recovery-admin/overview${suffix}`));
+    assert.equal(result.status, 200); assert.equal(queries[0].take, undefined); assert.equal(queries[0].skip, undefined);
+    assert.deepEqual(JSON.parse(JSON.stringify(queries[0].where)), suffix === '' ? {} : { selectedMonth: suffix === '?month=' ? '' : 'November' });
+  }
+});
+test('shared status colors cover every preset and normalize imported casing', () => {
+  const { statusColors } = load('lib/recovery/status-colors.ts');
+  const { leadStatuses, paymentStatuses } = load('lib/recovery/statuses.ts');
+  for (const field of ['paymentStatus', 'leadStatus']) {
+    for (const value of field === 'paymentStatus' ? paymentStatuses : leadStatuses) {
+      const color = statusColors(field, value);
+      assert.notEqual(color.backgroundColor, statusColors(field, 'custom example').backgroundColor);
+      assert.equal(color.backgroundColor, statusColors(field, ` ${value.toUpperCase()} `).backgroundColor);
+    }
+  }
+});
+test('appearance preferences save only the signed-in user theme color', async () => {
+  let update;
+  const route = load('app/api/account/appearance/route.ts', { user: member, client: { auth: { updateUser: async args => { update = args; return { error: null }; } } } });
+  assert.equal((await route.PATCH(request({ color: 'orange' }))).body.color, 'orange');
+  assert.deepEqual(JSON.parse(JSON.stringify(update)), { data: { theme_color: 'orange' } });
+  assert.equal((await route.PATCH(request({ color: 'orange', role: 'main_admin' }))).status, 400);
+  assert.equal((await route.PATCH(request({ color: 'invalid' }))).status, 400);
+  assert.equal((await route.PATCH(request({ color: 'blue' }, 'https://other.example'))).status, 403);
+  assert.equal((await load('app/api/account/appearance/route.ts').PATCH(request({ color: 'blue' }))).status, 401);
+});
+
+test('custom messages use comments, allow clearing, and cannot become lead statuses', async () => {
+  let query;
+  const route = load(statusFile, { user: recoveryExecutive, db: { recoveryLead: { updateMany: async args => { query = args; return { count: 1 }; } } } });
+  assert.equal((await route.PATCH(request({ leadStatus: 'custom message' }), statusContext)).status, 400);
+  assert.equal((await route.PATCH(request({ comments: 'Call tomorrow' }), statusContext)).body.comments, 'Call tomorrow');
+  assert.equal(query.data.leadStatus, undefined); assert.equal(query.where.assignedTo, member.id);
+  assert.equal((await route.PATCH(request({ comments: '' }), statusContext)).body.comments, '');
+  assert.equal((await route.PATCH(request({ comments: 'x'.repeat(5001) }), statusContext)).status, 400);
+});
+test('recovery totals use full mentioned amount only for paid students and retain every current status', () => {
+  const { summarizeRecovery, amountInPaise } = load('lib/recovery/summary.ts');
+  const row = { assignedTo: member.id, amountMentioned: '₹4,500/-', paymentStatus: ' PAID ', leadStatus: ' Not Answered ' };
+  const result = summarizeRecovery([row, { ...row, paymentStatus: 'unpaid', leadStatus: 'called' }, { ...row, paymentStatus: 'default', leadStatus: 'affirmed' }, { ...row, amountMentioned: 'unknown', leadStatus: 'custom imported status' }]);
+  assert.equal(result.recoveredPaise, 450000); assert.equal(result.paid, 2); assert.equal(result.unpaid, 1); assert.equal(result.default, 1); assert.equal(result.excludedAmounts, 1);
+  assert.equal(result.statuses['not answered'], 1); assert.equal(result.statuses.called, 1); assert.equal(result.statuses.affirmed, 1); assert.equal(result.statuses['custom imported status'], 1); assert.equal(result.statuses.busy, 0);
+  assert.equal(amountInPaise('INR 1,234.56'), 123456); assert.equal(amountInPaise(''), null); assert.equal(amountInPaise('-100'), null);
+});
+test('recovery leaderboard ranks by amount and keeps unassigned rows only in overall totals', () => {
+  const { recoveryLeaderboard, summarizeRecovery } = load('lib/recovery/summary.ts');
+  const row = { assignedTo: member.id, amountMentioned: '1000', paymentStatus: 'paid', leadStatus: 'called' };
+  const rows = [row, { ...row, assignedTo: mainAdmin.id, amountMentioned: '2000' }, { ...row, assignedTo: null, amountMentioned: '500' }];
+  const leaders = recoveryLeaderboard(rows, [{ id: member.id, name: 'First', email: '' }, { id: mainAdmin.id, name: 'Second', email: '' }]);
+  assert.equal(leaders[0].id, mainAdmin.id); assert.equal(leaders[0].recoveredPaise, 200000); assert.equal(leaders[1].total, 1); assert.equal(summarizeRecovery(rows).recoveredPaise, 350000);
+  assert.equal(summarizeRecovery([{ ...row, leadStatus: '__proto__' }]).statuses.__proto__, 1);
+});
+test('recovery percentage is paid student share and handles empty scopes', () => {
+  const { summarizeRecovery } = load('lib/recovery/summary.ts');
+  const row = { assignedTo: member.id, amountMentioned: '100', paymentStatus: 'paid', leadStatus: 'called' };
+  assert.equal(summarizeRecovery([]).recoveryPercentage, 0);
+  assert.equal(summarizeRecovery([row]).recoveryPercentage, 100);
+  assert.equal(summarizeRecovery([row, { ...row, paymentStatus: 'unpaid' }, { ...row, paymentStatus: 'default' }, { ...row, paymentStatus: '' }]).recoveryPercentage, 25);
+});
