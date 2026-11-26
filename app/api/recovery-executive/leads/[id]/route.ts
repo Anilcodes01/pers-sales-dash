@@ -11,7 +11,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const { id } = await context.params;
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new AccessError(400, "Invalid student.");
     if (!Object.keys(body).length || Object.keys(body).some(key => key !== "paymentStatus" && key !== "leadStatus" && key !== "comments")) throw new AccessError(400, "Update only payment status, lead status, or comments.");
-    const data: { paymentStatus?: string; leadStatus?: string; comments?: string; updatedAt: Date } = { updatedAt: new Date() };
+    const data: { paymentStatus?: string; leadStatus?: string; comments?: string; updatedAt: Date; paidAt?: Date | null } = { updatedAt: new Date() };
     if ("paymentStatus" in body) {
       if (typeof body.paymentStatus !== "string" || !(paymentStatuses as readonly string[]).includes(body.paymentStatus)) throw new AccessError(400, "Choose unpaid, paid, or default.");
       data.paymentStatus = body.paymentStatus;
@@ -24,8 +24,21 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (typeof body.comments !== "string" || body.comments.length > 5000) throw new AccessError(400, "Comments must be at most 5,000 characters.");
       data.comments = body.comments;
     }
-    // Check assignment in the write itself, including if an admin just reassigned it.
-    const result = await db().recoveryLead.updateMany({ where: { id, assignedTo: user.id }, data });
+    const client = db();
+    const where = { id, assignedTo: user.id };
+    let result;
+    if (data.paymentStatus === "paid") {
+      data.paidAt = new Date();
+      result = await client.recoveryLead.updateMany({ where: { ...where, paymentStatus: { not: "paid", mode: "insensitive" } }, data });
+      if (!result.count) {
+        // An already-paid record keeps its recovery date, including an unknown legacy date.
+        delete data.paidAt;
+        result = await client.recoveryLead.updateMany({ where: { ...where, paymentStatus: { equals: "paid", mode: "insensitive" } }, data });
+      }
+    } else {
+      if (data.paymentStatus !== undefined) data.paidAt = null;
+      result = await client.recoveryLead.updateMany({ where, data });
+    }
     if (result.count !== 1) throw new AccessError(404, "This student is no longer allocated to you. Refresh your list.");
     return json({ id, ...data });
   } catch (error) { return apiError(error); }

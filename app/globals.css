@@ -271,3 +271,28 @@ body:has(.app-shell) { overflow:hidden; }
 .business-contact a { text-decoration: underline; text-underline-offset: 3px; }
 .public-info-footer .business-contact { margin-bottom: 22px; }
 .landing-bottom > nav { align-content: flex-start; max-width: 450px; }
+.allocation-range-form { border-block: 1px solid var(--border); padding-block: 14px; margin-bottom: 8px; }
+.allocation-range-form h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+.allocation-range-fields { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; }
+.allocation-range-fields > label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; }
+.allocation-range-fields input[type="number"] { width: 110px; }
+.allocation-range-fields > label.allocation-range-reassign { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.allocation-range-reassign input { width: 18px; height: 18px; accent-color: var(--primary); }
+.allocation-range-form p { font-size: 12px; color: var(--muted-foreground); margin: 8px 0 0; }
+.statistics-month-filter { display: grid; gap: 6px; max-width: 260px; margin-bottom: 14px; font-size: 13px; font-weight: 600; }
+/* Portaled selectors must be above the statistics drawer and its overlay. */
+[data-slot="select-content"] { z-index: 80; }
+.recovery-sheet-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
+.statistics-heading-actions { display: flex; align-items: center; gap: 12px; }
+.statistics-heading-actions .statistics-month-filter { margin: 0; font-size: 0; gap: 0; }
+.statistics-heading-actions [data-slot="select-trigger"] { font-size: 14px; height: 34px; }
+.recovery-progress, .daily-amount-bar { overflow: hidden; height: 7px; border-radius: 5px; background: var(--secondary); min-width: 90px; margin-top: 7px; }
+.recovery-progress > span, .daily-amount-bar > span { display: block; height: 100%; background: var(--primary); border-radius: inherit; transition: width 500ms ease; animation: recovery-bar-grow 550ms ease-out; transform-origin: left; }
+.daily-recovery { margin: 20px 0; }
+.daily-recovery h2 { font-size: 16px; }
+.daily-recovery-row { display: grid; grid-template-columns: 90px minmax(90px,1fr) auto; gap: 7px 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.daily-recovery-row small { color: var(--muted-foreground); }
+.daily-amount-bar { height: 16px; margin: 0; }
+@keyframes recovery-bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@media(prefers-reduced-motion:reduce) { .recovery-progress > span,.daily-amount-bar > span { animation: none; transition: none; } }
+@media(max-width:500px) { .statistics-panel-heading { flex-wrap: wrap; }.statistics-heading-actions { margin-left: auto; } }

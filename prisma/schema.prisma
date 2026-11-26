@@ -64,6 +64,7 @@ model SalesRecord {
 }
 
 model RecoveryLead {
+  paidAt DateTime? @map("paid_at") @db.Timestamptz(6)
   comments String @default("") @db.Text
   assignedTo String? @map("assigned_to") @db.Uuid
   assignedBy String? @map("assigned_by") @db.Uuid
@@ -90,6 +91,7 @@ model RecoveryLead {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   @@index([createdAt, id])
+  @@index([paidAt])
   @@index([assignedTo, selectedMonth])
   @@index([selectedMonth])
   @@index([uploadId])

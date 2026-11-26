@@ -24,6 +24,8 @@ export async function recoveryExecutives() {
 }
 export async function allocateLeads(actorId: string, body: Record<string, unknown>) {
   const { ids, assignedTo, month } = body;
+  if (body.reassign !== undefined && typeof body.reassign !== "boolean") throw new AccessError(400, "Invalid reassignment option.");
+  const reassign = body.reassign !== false;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!Array.isArray(ids) || !ids.length || !ids.every(id => typeof id === "string" && uuid.test(id)) || new Set(ids).size !== ids.length) throw new AccessError(400, "Select 1 or more students.");
   if (typeof month !== "string" || month.length > 10000) throw new AccessError(400, "Select a month.");
@@ -35,8 +37,8 @@ export async function allocateLeads(actorId: string, body: Record<string, unknow
   return db().$transaction(async tx => {
     const where = { id: { in: ids as string[] }, selectedMonth: month };
     if (await tx.recoveryLead.count({ where }) !== ids.length) throw new AccessError(409, "Some selected students are no longer in this month. Refresh and try again.");
-    const result = await tx.recoveryLead.updateMany({ where, data: { assignedTo: assignedTo as string | null, assignedBy: actorId, assignedAt: new Date() } });
-    if (result.count !== ids.length) throw new AccessError(409, "Allocation changed. Refresh and try again.");
-    return { updated: result.count };
+    const result = await tx.recoveryLead.updateMany({ where: { ...where, ...(!reassign ? { assignedTo: null } : {}) }, data: { assignedTo: assignedTo as string | null, assignedBy: actorId, assignedAt: new Date() } });
+    if (reassign && result.count !== ids.length) throw new AccessError(409, "Allocation changed. Refresh and try again.");
+    return { updated: result.count, skipped: ids.length - result.count };
   });
 }

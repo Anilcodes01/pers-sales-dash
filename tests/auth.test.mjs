@@ -583,3 +583,57 @@ test('recovery percentage is paid student share and handles empty scopes', () =>
   assert.equal(summarizeRecovery([row]).recoveryPercentage, 100);
   assert.equal(summarizeRecovery([row, { ...row, paymentStatus: 'unpaid' }, { ...row, paymentStatus: 'default' }, { ...row, paymentStatus: '' }]).recoveryPercentage, 25);
 });
+test('numbered allocation range uses inclusive one-based displayed row numbers', () => {
+  const { numberedRowRange } = load('lib/recovery/selection.ts');
+  assert.deepEqual(JSON.parse(JSON.stringify(numberedRowRange(['a', 'b', 'c', 'd'], '2', '4'))), ['b', 'c', 'd']);
+  assert.equal(numberedRowRange(['a'], '1', '1')[0], 'a');
+  for (const [first, last] of [['0', '2'], ['3', '2'], ['1', '5'], ['1.5', '2'], ['', '2']]) assert.throws(() => numberedRowRange(['a', 'b', 'c'], first, last));
+});
+test('range allocation skips assigned rows atomically unless reassignment is enabled', async () => {
+  let query;
+  const { allocateLeads } = load('lib/recovery/allocation.ts', { admin: { getUserById: async () => ({ data: { user: recoveryExecutive }, error: null }) }, db: { $transaction: async callback => callback({ recoveryLead: { count: async () => 2, updateMany: async args => { query = args; return { count: 1 }; } } }) } });
+  const result = await allocateLeads(mainAdmin.id, { ids: [member.id, mainAdmin.id], month: 'November', assignedTo: member.id, reassign: false });
+  assert.equal(query.where.assignedTo, null); assert.equal(query.where.selectedMonth, 'November'); assert.equal(result.updated, 1); assert.equal(result.skipped, 1);
+  await assert.rejects(() => allocateLeads(mainAdmin.id, { ids: [member.id, mainAdmin.id], month: 'November', assignedTo: member.id, reassign: true }), /Allocation changed/);
+  await assert.rejects(() => allocateLeads(mainAdmin.id, { ids: [member.id], month: 'November', assignedTo: member.id, reassign: 'false' }), /Invalid reassignment/);
+});
+test('default recovery month follows India time across month boundaries', () => {
+  const { currentRecoveryMonth } = load('lib/recovery/month.ts');
+  assert.equal(currentRecoveryMonth(new Date('2026-10-31T20:00:00Z')), 'November');
+  assert.equal(currentRecoveryMonth(new Date('2026-11-30T18:00:00Z')), 'November');
+  assert.equal(currentRecoveryMonth(new Date('2026-11-30T19:00:00Z')), 'December');
+});
+test('daily recovery uses recorded paid dates in India time and excludes unknown historical dates', () => {
+  const { dailyRecovery } = load('lib/recovery/summary.ts');
+  const row = { assignedTo: member.id, amountMentioned: '4500', paymentStatus: 'paid', leadStatus: 'called', paidAt: '2026-11-25T20:00:00Z' };
+  const result = dailyRecovery([row, { ...row, amountMentioned: '1000' }, { ...row, paidAt: null }, { ...row, paymentStatus: 'unpaid' }]);
+  assert.equal(result.undated, 1); assert.equal(result.days.length, 1); assert.equal(result.days[0].date, '2026-11-26');
+  assert.equal(result.days[0].recoveredPaise, 550000); assert.equal(result.days[0].paid, 2); assert.equal(result.days[0].recoveryPercentage, 50);
+});
+test('paid timestamps are recorded on transition, preserved for already-paid saves, and untouched by comments', async () => {
+  const queries = [];
+  const route = load(statusFile, { user: recoveryExecutive, db: { recoveryLead: { updateMany: async args => { queries.push(args); return { count: queries.length === 1 ? 0 : 1 }; } } } });
+  await route.PATCH(request({ paymentStatus: 'paid' }), statusContext);
+  assert.equal(queries.length, 2); assert.equal(queries[1].data.paidAt, undefined);
+  queries.length = 0;
+  const updates = [];
+  const write = load(statusFile, { user: recoveryExecutive, db: { recoveryLead: { updateMany: async args => { updates.push(args); return { count: 1 }; } } } });
+  await write.PATCH(request({ paymentStatus: 'paid' }), statusContext); assert.ok(updates[0].data.paidAt);
+  await write.PATCH(request({ comments: 'follow-up' }), statusContext); assert.equal(updates[1].data.paidAt, undefined);
+  await write.PATCH(request({ paymentStatus: 'unpaid' }), statusContext); assert.equal(updates[2].data.paidAt, null);
+});
+test('statistics endpoint returns aggregates without student details and scopes executive queries', async () => {
+  const queries = [];
+  const row = { assignedTo: member.id, amountMentioned: '1000', paymentStatus: 'paid', leadStatus: 'called', paidAt: null };
+  const route = load('app/api/recovery-executive/statistics/route.ts', { user: recoveryExecutive, db: { recoveryLead: { findMany: async query => { queries.push(query); return query.distinct ? [{ selectedMonth: 'November' }] : [row]; } } } });
+  const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-executive/statistics?month=November'));
+  assert.equal(result.body.summary.paid, 1); assert.equal(result.body.records, undefined);
+  assert.equal(queries[0].where.assignedTo, member.id); assert.equal(queries[0].where.selectedMonth, 'November');
+  assert.equal(queries[0].select.studentPhone, undefined); assert.equal(queries[0].select.comments, undefined);
+});
+test('statistics endpoints reject wrong roles before database access', async () => {
+  for (const [file, user] of [['app/api/recovery-admin/statistics/route.ts', recoveryExecutive], ['app/api/recovery-executive/statistics/route.ts', recoveryAdmin]]) {
+    const route = load(file, { user, onDb: () => assert.fail('database accessed') });
+    assert.equal((await route.GET(request())).status, 403);
+  }
+});

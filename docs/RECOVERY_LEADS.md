@@ -41,3 +41,23 @@ All configured lead statuses appear with counts, including zeroes; imported cust
 Recovery percentage is the number of students currently marked paid divided by all students in the current dashboard scope, multiplied by 100. It appears on both dashboards and in each admin leaderboard row, follows the month filter, and shows 0.0% when there are no students. It is a student conversion rate rather than a monetary collection percentage.
 
 Recovery dashboards open their summaries through the navbar Statistics button. Statistics appear in a right-side panel with slide-in/slide-out transitions, Escape/outside-click dismissal, and keyboard focus management. The student sheet stays clear of inline statistics. The admin panel follows the month filter; executive panels retain counts/percentage without recovered monetary totals.
+
+## Allocate by row number
+
+The allocation page also includes an Allocate a row range form: first row, last row, recovery executive, and Reassign already allocated rows. Both row numbers are inclusive and refer to the displayed sheet for the selected month. Invalid, reversed, fractional, or out-of-bounds ranges are rejected. Submitted student IDs preserve the exact displayed range even if new imports change subsequent ordering.
+
+Range allocation skips already assigned students by default, using an `assigned_to IS NULL` condition in the database write. Checking reassignment allows replacement. The success toast reports updated and skipped counts. Existing drag, Shift-click, checkboxes, and Select all remain available; the existing Save allocation action retains its reassignment behavior.
+
+Recovery overview and executive dashboards now default to Current month, calculated in Asia/Kolkata time and matched to the CSV's month-name field. The sheet and Statistics panel share the same month selection; both provide Current month, All months, and individual uploaded month values. If the current month has no records, an empty list/zero statistics are shown rather than falling back to all months. CSV month values have no separate year, so this filter does not infer a year from upload or payment timestamps.
+
+Allocation also opens on the current month (India time), displaying its actual name. Deallocate selected clears assignments for checked/drag-selected students; Deallocate range clears assignments for the inclusive first/last row range without needing an executive selection. Both retain student records, comments, and statuses and use the authorized allocation endpoint with a null assignee. Former assignees lose access through the existing assignment-scoped queries.
+
+## Daily recovery statistics
+
+Apply `prisma/migrations/202611260004_recovery_paid_at/migration.sql` before deploying daily tracking. It adds nullable `paid_at` without inventing dates for old records. An executive marking a student paid records the timestamp; repeat saves of paid preserve it. Comments and lead-status edits do not change it. Changing payment away from paid clears it.
+
+The admin statistics panel groups currently paid students by `paid_at` in India time and shows amounts, counts, and each day's paid count divided by the selected cohort's total students. The month filter selects the CSV cohort, not the calendar month of payment. The chart is a current-state view, so reversals remove entries and reassignment affects current executive attribution. Older/imported paid rows with unknown payment dates are explicitly excluded from the daily chart while remaining in overall totals. It is not a historical transaction ledger.
+
+Animated bars show daily amounts relative to the largest day and daily/overall/executive recovery percentages. Reduced-motion preferences disable bar animations. The month filter is positioned beside the panel close button.
+
+Statistics now load through dedicated authorized summary endpoints, returning aggregates and month choices rather than student records. The panel loads lazily on first opening and caches results per role/month until its Refresh button is used. Refresh invalidates the panel cache and fetches statistics only. The panel month is independent of the sheet month after selection; neither opening, changing its filter, nor refreshing reloads the sheet. A first panel opening uses the sheet's current filter. Executive summary queries are restricted to the signed-in assignee.

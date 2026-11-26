@@ -1,5 +1,5 @@
 import { leadStatuses } from "./statuses";
-export type RecoverySummaryRow = { assignedTo: string | null; amountMentioned: string; paymentStatus: string; leadStatus: string };
+export type RecoverySummaryRow = { assignedTo: string | null; amountMentioned: string; paymentStatus: string; leadStatus: string; paidAt?: string | Date | null };
 export function amountInPaise(value: string): number | null {
   const cleaned = value.trim().replace(/^(?:₹|rs\.?|inr)\s*/i, "").replace(/\s*\/-$/, "").replace(/,/g, "").trim();
   if (!/^\d+(?:\.\d{1,2})?$/.test(cleaned)) return null;
@@ -34,4 +34,22 @@ export function recoveryLeaderboard(rows: RecoverySummaryRow[], executives: { id
     const group = groups.get(row.assignedTo) || []; group.push(row); groups.set(row.assignedTo, group);
   }
   return [...people.values()].map(person => ({ ...person, ...summarizeRecovery(groups.get(person.id) || []) })).sort((a, b) => b.recoveredPaise - a.recoveredPaise || b.paid - a.paid || a.name.localeCompare(b.name));
+}
+
+export function dailyRecovery(rows: RecoverySummaryRow[]) {
+  const days = new Map<string, { date: string; paid: number; recoveredPaise: number; excludedAmounts: number; recoveryPercentage: number }>();
+  let undated = 0;
+  for (const row of rows) {
+    if (row.paymentStatus.trim().toLowerCase() !== "paid") continue;
+    const timestamp = row.paidAt ? new Date(row.paidAt) : null;
+    if (!timestamp || Number.isNaN(timestamp.getTime())) { undated++; continue; }
+    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(timestamp);
+    const day = days.get(date) || { date, paid: 0, recoveredPaise: 0, excludedAmounts: 0, recoveryPercentage: 0 };
+    day.paid++;
+    const amount = amountInPaise(row.amountMentioned);
+    if (amount === null) day.excludedAmounts++; else day.recoveredPaise += amount;
+    day.recoveryPercentage = rows.length ? day.paid / rows.length * 100 : 0;
+    days.set(date, day);
+  }
+  return { days: [...days.values()].sort((a, b) => a.date.localeCompare(b.date)), undated };
 }
