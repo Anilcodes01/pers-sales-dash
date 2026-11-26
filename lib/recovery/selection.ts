@@ -11,3 +11,9 @@ export function numberedRowRange(ids: string[], first: string, last: string) {
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start || end > ids.length) throw new Error(`Choose a range from 1 to ${ids.length}, with the last row at or after the first.`);
   return ids.slice(start - 1, end);
 }
+
+export function selectedRowBounds(ids: string[], selected: string[]) {
+  const selectedSet = new Set(selected);
+  const indices = ids.flatMap((id, index) => selectedSet.has(id) ? [index] : []);
+  return indices.length ? { first: indices[0] + 1, last: indices[indices.length - 1] + 1 } : null;
+}

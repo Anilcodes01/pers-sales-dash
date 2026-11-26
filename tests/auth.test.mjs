@@ -637,3 +637,12 @@ test('statistics endpoints reject wrong roles before database access', async () 
     assert.equal((await route.GET(request())).status, 403);
   }
 });
+test('sheet selection maps to inclusive visible row bounds for the single allocation form', () => {
+  const { selectedRowBounds, numberedRowRange } = load('lib/recovery/selection.ts');
+  const ids = ['a', 'b', 'c', 'd'];
+  assert.equal(selectedRowBounds(ids, []), null);
+  const bounds = selectedRowBounds(ids, ['d', 'b']);
+  assert.equal(bounds.first, 2); assert.equal(bounds.last, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(numberedRowRange(ids, String(bounds.first), String(bounds.last)))), ['b', 'c', 'd']);
+  assert.equal(selectedRowBounds(ids, ['unknown']), null);
+});

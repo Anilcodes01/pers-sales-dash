@@ -5,7 +5,7 @@ import { RefreshCw, Loader2 } from "lucide-react";
 import { AllocationSheet, type AllocationStudent } from "./allocation-sheet";
 import { RecoveryMonthFilter } from "./recovery-month-filter";
 import { CURRENT_MONTH, currentRecoveryMonth } from "@/lib/recovery/month";
-import { numberedRowRange } from "@/lib/recovery/selection";
+import { numberedRowRange, selectedRowBounds } from "@/lib/recovery/selection";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
 import { RecoveryStatisticsPanel } from "./recovery-statistics-panel";
@@ -36,7 +36,6 @@ export function RecoveryAllocation({
   const [months, setMonths] = useState<string[]>([]);
   const [executives, setExecutives] = useState<Executive[]>([]);
   const [month, setMonth] = useState<string | null>(CURRENT_MONTH);
-  const [assignee, setAssignee] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [records, setRecords] = useState<Student[]>([]);
   const [total, setTotal] = useState(0);
@@ -90,6 +89,7 @@ export function RecoveryAllocation({
         setRecords(data.records);
         setTotal(data.total);
         setSelected([]);
+        setFirstRow(""); setLastRow("");
       } catch (error) {
         if (!controller.signal.aborted) {
           setFailed(true);
@@ -104,7 +104,7 @@ export function RecoveryAllocation({
     void load();
     return () => controller.abort();
   }, [executive, month, revision]);
-  async function allocate(ids = selected, target = assignee, reassign = true) {
+  async function allocate(ids: string[], target: string, reassign = true) {
     setBusy(true);
     try {
       const response = await fetch("/api/recovery-admin/allocation", {
@@ -131,6 +131,17 @@ export function RecoveryAllocation({
     } finally {
       setBusy(false);
     }
+  }
+  function updateRange(first: string, last: string) {
+    setFirstRow(first); setLastRow(last);
+    try { setSelected(numberedRowRange(records.map(row => row.id), first, last)); }
+    catch { setSelected([]); }
+  }
+  function selectRows(ids: string[]) {
+    const bounds = selectedRowBounds(records.map(row => row.id), ids);
+    if (!bounds) { updateRange("", ""); return; }
+    // One range form means one contiguous selection, including any rows between endpoints.
+    updateRange(String(bounds.first), String(bounds.last));
   }
   const executiveMonths = [
     ...new Set(records.map((row) => row.selectedMonth)),
@@ -163,6 +174,7 @@ export function RecoveryAllocation({
         <h2>{executive ? "Students to call" : "Student allocation"}</h2>
         <div className="recovery-sheet-actions">
           {executive && <RecoveryMonthFilter month={executiveMonth} months={executiveMonths} currentMonthName={resolvedCurrentMonth} onChange={setExecutiveMonth} disabled={loading}/>}
+          {!executive && <RecoveryMonthFilter month={month} months={months} currentMonthName={resolvedCurrentMonth} allowAll={false} disabled={busy || loading} onChange={value => { setMonth(value); setFirstRow(""); setLastRow(""); setSelected([]); setRecords([]); }}/>}
 
         <Button
           variant="outline"
@@ -175,43 +187,6 @@ export function RecoveryAllocation({
       </div>
       {!executive && (
         <>
-          <div className="auth-form csv-upload-form">
-            <label>
-              Month from CSV
-              <RecoveryMonthFilter month={month} months={months} currentMonthName={resolvedCurrentMonth} allowAll={false} disabled={busy || loading} onChange={value => { setMonth(value); setFirstRow(""); setLastRow(""); setSelected([]); setRecords([]); }}/>
-
-            </label>
-            <label>
-              Allocate to
-              <Select
-                value={assignee}
-                disabled={busy}
-                onValueChange={setAssignee}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select recovery executive" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="unassigned">Unassigned</SelectItem>
-                  {executives.map((person) => (
-                    <SelectItem key={person.id} value={person.id}>
-                      {person.name} ({person.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-            <Button
-              disabled={
-                busy || loading || failed || !selected.length || !assignee
-              }
-              onClick={() => void allocate()}
-            >
-              {busy && <Loader2 className="animate-spin" />} Save allocation (
-              {selected.length})
-            </Button>
-            <Button variant="outline" disabled={busy || loading || failed || !selected.length} onClick={() => void allocate(selected, "unassigned", true)}>Deallocate selected ({selected.length})</Button>
-          </div>
           <form
             className="allocation-range-form"
             onSubmit={(event) => {
@@ -244,7 +219,7 @@ export function RecoveryAllocation({
                   step={1}
                   required
                   value={firstRow}
-                  onChange={(event) => setFirstRow(event.target.value)}
+                  onChange={(event) => updateRange(event.target.value, lastRow)}
                   disabled={busy || loading || month === null}
                 />
               </label>
@@ -257,7 +232,7 @@ export function RecoveryAllocation({
                   step={1}
                   required
                   value={lastRow}
-                  onChange={(event) => setLastRow(event.target.value)}
+                  onChange={(event) => updateRange(firstRow, event.target.value)}
                   disabled={busy || loading || month === null}
                 />
               </label>
@@ -311,6 +286,7 @@ export function RecoveryAllocation({
               }}>Deallocate range</Button>
             </div>
            
+            <p>Drag across rows to fill First row and Last row, or enter them above. The full inclusive range is highlighted and used for allocation or deallocation.</p>
           </form>
       
         </>
@@ -333,7 +309,7 @@ export function RecoveryAllocation({
               rows={visibleRecords}
               executives={executives}
               selected={selected}
-              onSelect={setSelected}
+              onSelect={selectRows}
               disabled={busy}
               executive={executive}
               onStatusSaved={(id, field, value) =>
