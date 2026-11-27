@@ -1004,3 +1004,46 @@ test('unchanged recovered pages avoid fetching records, directories or month lis
   const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-executive/recovered-leads?page=1&cursor=10'));
   assert.equal(result.status, 200); assert.equal(result.body.unchanged, true);
 });
+
+test('admin student sheet returns a full month snapshot for local payment filters without pagination', async () => {
+  for (const status of ['all', 'paid', 'unpaid']) {
+    let query;
+    const database = { $queryRaw: async () => [{ latest: 1n, floor: 1n }], recoveryLead: { findMany: async args => { if (args.distinct) return []; query = args; return Array.from({ length: 60 }, (_, index) => ({ id: String(index), paymentStatus: index % 2 ? 'paid' : '' })); }, count: async () => 0 } };
+    database.$transaction = callback => callback(database);
+    const route = load('app/api/recovery-admin/recovered-leads/route.ts', { user: recoveryAdmin, db: database, admin: { listUsers: async () => ({ data: { users: [] }, error: null }) } });
+    const result = await route.GET(request({}, 'http://localhost:3000', `http://localhost:3000/api/recovery-admin/recovered-leads?month=December&status=${status}`));
+    assert.equal(result.status, 200); assert.equal(query.where.selectedMonth, 'December'); assert.equal(query.where.assignedTo, undefined);
+    assert.equal(query.where.paymentStatus, undefined);
+    assert.equal(query.take, undefined); assert.equal(query.skip, undefined);
+    assert.equal(result.body.records.length, 60); assert.equal(result.body.reset, true);
+  }
+});
+test('admin filtered CSV exports every matching row, escapes cells and blocks other roles', async () => {
+  const file = 'app/api/recovery-admin/students/export/route.ts';
+  let query;
+  const route = load(file, { user: recoveryAdmin, db: { recoveryLead: { findMany: async args => { query = args; return [{ studentName: '=formula', comments: 'a,"b"\nline', paymentStatus: 'unpaid' }]; } } } });
+  const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-admin/students/export?month=December&status=unpaid'));
+  assert.equal(result.status, 200); assert.equal(query.take, undefined); assert.equal(query.skip, undefined); assert.equal(query.where.assignedTo, undefined); assert.equal(query.where.paymentStatus.not, 'paid'); assert.equal(query.where.selectedMonth, 'December');
+  const csv = await result.text(); assert.ok(csv.includes("'=formula")); assert.ok(csv.includes('a,""b""\nline')); assert.match(result.headers.get('content-type'), /text\/csv/);
+  for (const user of [null, recoveryExecutive, member]) {
+    const denied = await load(file, { user, onDb: () => assert.fail('Unauthorized export queried DB') }).GET(request());
+    assert.equal(denied.status, user ? 403 : 401);
+  }
+});
+
+test('navbar recovery uses current recovery month counts and handles an empty batch', async () => {
+  for (const [total, paid] of [[864, 9], [0, 0]]) {
+    const queries = [];
+    const route = load('app/api/recovery-admin/period/route.ts', { user: recoveryAdmin, db: {
+      recoveryPeriod: { findFirst: async () => null },
+      recoveryLead: { count: async query => { queries.push(query); return query.where.paymentStatus ? paid : total; } },
+      $transaction: async queries => Promise.all(queries),
+    } });
+    const result = await route.GET();
+    assert.equal(result.status, 200);
+    assert.equal(result.body.recovery.total, total); assert.equal(result.body.recovery.paid, paid);
+    assert.equal(result.body.recovery.percentage, total ? paid / total * 100 : 0);
+    assert.equal(queries[0].where.selectedMonth, load('lib/recovery/month.ts').currentRecoveryMonth());
+    assert.equal(queries[1].where.paymentStatus.equals, 'paid');
+  }
+});

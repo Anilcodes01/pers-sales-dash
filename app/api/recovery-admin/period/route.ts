@@ -2,10 +2,24 @@ import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 import { json, apiError, readAdminBody } from "@/lib/auth/http";
 import { requireRecoveryRole } from "@/lib/recovery/allocation";
+import { currentRecoveryMonth } from "@/lib/recovery/month";
+import { cachedRecovery } from "@/lib/recovery/cache";
 export async function GET() {
   try {
     await requireRecoveryRole("recovery_admin");
-    return json({ period: await db().recoveryPeriod.findFirst({ orderBy: { startedAt: "desc" } }) });
+    const month = currentRecoveryMonth();
+    const client = db();
+    const [period, recovery] = await Promise.all([
+      client.recoveryPeriod.findFirst({ orderBy: { startedAt: "desc" } }),
+      cachedRecovery(`navbar-recovery:${month}`, 25000, async () => {
+        const [total, paid] = await client.$transaction([
+          client.recoveryLead.count({ where: { selectedMonth: month } }),
+          client.recoveryLead.count({ where: { selectedMonth: month, paymentStatus: { equals: "paid", mode: "insensitive" } } }),
+        ], { isolationLevel: "RepeatableRead" });
+        return { month, total, paid, percentage: total ? paid / total * 100 : 0 };
+      }),
+    ]);
+    return json({ period, recovery });
   } catch (error) { return apiError(error); }
 }
 export async function POST(request: NextRequest) {
