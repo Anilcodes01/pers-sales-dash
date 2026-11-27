@@ -6,6 +6,8 @@ import { boundedForm } from "@/lib/auth/upload";
 import { json, apiError } from "@/lib/auth/http";
 import { db } from "@/lib/db";
 import { parseRecoveryCsv } from "@/lib/recovery/csv";
+import { pagedSnapshot } from "@/lib/recovery/paged-sync";
+import { invalidateRecoveryCache } from "@/lib/recovery/cache";
 async function requireRecoveryAdmin() {
   const user = await currentUser();
   if (!user) throw new AccessError(401, "Sign in to continue.");
@@ -17,12 +19,9 @@ export async function GET(request: NextRequest) {
     await requireRecoveryAdmin();
     const page = Number(request.nextUrl.searchParams.get("page") || 1);
     if (!Number.isInteger(page) || page < 1 || page > 100000) throw new AccessError(400, "Invalid page.");
-    const client = db();
-    const [records, total] = await client.$transaction([
-      client.recoveryLead.findMany({ orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip: (page - 1) * 25, take: 25 }),
-      client.recoveryLead.count(),
-    ]);
-    return json({ records, total, page, hasMore: page * 25 < total });
+    const cursor = request.nextUrl.searchParams.get("cursor");
+    if (cursor !== null && !/^\d{1,19}$/.test(cursor)) throw new AccessError(400, "Invalid sync cursor.");
+    return json(await pagedSnapshot(db(), {}, page, cursor, undefined, "createdAt"));
   } catch (error) { return apiError(error); }
 }
 export async function POST(request: NextRequest) {
@@ -44,6 +43,8 @@ export async function POST(request: NextRequest) {
         await tx.recoveryLead.createMany({ data: rows.slice(index, index + 500).map(row => ({ ...row, uploadedBy: user.id, uploadId, filename: file.name.slice(0, 255) })) });
       }
     }, { timeout: 30000 });
+    invalidateRecoveryCache("months:");
+    invalidateRecoveryCache("statistics:");
     return json({ imported: rows.length, uploadId }, 201);
   } catch (error) { return apiError(error); }
 }

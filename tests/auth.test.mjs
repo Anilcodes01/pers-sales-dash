@@ -6,6 +6,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { parse } from 'csv-parse/sync';
 import { createHash } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 
 const member = { id: '11111111-1111-4111-8111-111111111111', email: 'member@example.com', app_metadata: { role: 'sales_executive' }, created_at: '2026-11-25' };
 const mainAdmin = { ...member, id: '22222222-2222-4222-8222-222222222222', app_metadata: { role: 'main_admin' } };
@@ -18,6 +19,7 @@ function load(file, options = {}) {
     vm.runInNewContext(code, { exports, URL, performance, Buffer, Response, File, TextDecoder, process: { env: options.env || {} }, require(name) {
       if (options.modules && Object.hasOwn(options.modules, name)) return options.modules[name];
       if (name === 'server-only') return {};
+      if (name === '@prisma/client') return { Prisma };
       if (name === '@/lib/db') return { db: () => { options.onDb?.(); return options.db; } };
       if (name === 'next/navigation') return { redirect: (destination) => { throw new Error(`REDIRECT:${destination}`); } };
       if (name === 'csv-parse/sync') return { parse };
@@ -444,7 +446,7 @@ test('allocation rejects students outside the selected month without updating', 
 });
 test('executive call list always scopes records and counts to signed-in assignee', async () => {
   const queries = [];
-  const handlers = load('app/api/recovery-executive/leads/route.ts', { user: recoveryExecutive, db: { recoveryLead: { findMany: args => { queries.push(args); return []; }, count: args => { queries.push(args); return 0; } }, $transaction: async values => Promise.all(values) } });
+  const handlers = load('app/api/recovery-executive/leads/route.ts', { user: recoveryExecutive, db: { $queryRaw: async () => [{ latest: 1n, floor: 1n }], recoveryLead: { findMany: args => { queries.push(args); return []; } }, $transaction: async function(callback) { return callback(this); } } });
   const response = await handlers.GET(request({}, 'http://localhost:3000', `http://localhost:3000/api/recovery-executive/leads?assignedTo=${mainAdmin.id}`));
   assert.equal(response.body.total, 0);
   for (const query of queries) assert.equal(query.where.assignedTo, member.id);
@@ -457,7 +459,7 @@ test('allocation POST rejects foreign origins even for recovery admin', async ()
 });
 test('allocation listing returns the entire selected CSV month without pagination', async () => {
   let query;
-  const route = load('app/api/recovery-admin/allocation/route.ts', { user: recoveryAdmin, db: { recoveryLead: { findMany: args => { query = args; return []; }, count: () => 110 }, $transaction: async values => Promise.all(values) } });
+  const route = load('app/api/recovery-admin/allocation/route.ts', { user: recoveryAdmin, db: { $queryRaw: async () => [{ latest: 1n, floor: 1n }], recoveryLead: { findMany: args => { query = args; return Array.from({ length: 110 }, (_, index) => ({ id: String(index) })); } }, $transaction: async function(callback) { return callback(this); } } });
   const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-admin/allocation?month=May&page=2'));
   assert.equal(query.where.selectedMonth, 'May'); assert.equal(query.skip, undefined); assert.equal(query.take, undefined); assert.equal(result.body.total, 110);
 });
@@ -522,7 +524,7 @@ test('recovery overview denies other roles before data or privileged Auth access
 });
 test('recovery overview returns full records and filters exact CSV months including blanks', async () => {
   const queries = [];
-  const database = { recoverySheetChange: { aggregate: async () => ({ _max: { id: 0n } }) }, recoveryLead: { findMany: async query => { queries.push(query); return []; } } };
+  const database = { $queryRaw: async () => [{ latest: 1n, floor: 1n }], recoveryLead: { findMany: async query => { queries.push(query); return []; } } };
   database.$transaction = callback => callback(database);
   const route = load('app/api/recovery-admin/overview/route.ts', { user: recoveryAdmin, admin: { listUsers: async () => ({ data: { users: [] }, error: null }) }, db: database });
   for (const suffix of ['', '?month=November', '?month=']) {
@@ -628,14 +630,16 @@ test('paid timestamps are recorded on transition, preserved for already-paid sav
   await write.PATCH(request({ comments: 'follow-up' }), statusContext); assert.equal(updates[1].data.paidAt, undefined);
   await write.PATCH(request({ paymentStatus: 'unpaid' }), statusContext); assert.equal(updates[2].data.paidAt, null);
 });
-test('statistics endpoint returns aggregates without student details and scopes executive queries', async () => {
-  const queries = [];
-  const row = { assignedTo: member.id, amountMentioned: '1000', paymentStatus: 'paid', leadStatus: 'called', paidAt: null };
-  const route = load('app/api/recovery-executive/statistics/route.ts', { user: recoveryExecutive, db: { recoveryLead: { findMany: async query => { queries.push(query); return query.distinct ? [{ selectedMonth: 'November' }] : [row]; } } } });
+test('statistics endpoint aggregates inside the database and scopes executive SQL parameters', async () => {
+  let sql;
+  const route = load('app/api/recovery-executive/statistics/route.ts', { user: recoveryExecutive, db: {
+    recoveryLead: { findMany: async query => { assert.ok(query.distinct); return [{ selectedMonth: 'November' }]; } },
+    $queryRaw: async query => { sql = query; return [{ groups: [{ assignedTo: member.id, payment: 'paid', status: 'called', total: 1, recoveredPaise: 100000, excludedAmounts: 0 }], days: [], undated: 1 }]; },
+  } });
   const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-executive/statistics?month=November'));
   assert.equal(result.body.summary.paid, 1); assert.equal(result.body.records, undefined);
-  assert.equal(queries[0].where.assignedTo, member.id); assert.equal(queries[0].where.selectedMonth, 'November');
-  assert.equal(queries[0].select.studentPhone, undefined); assert.equal(queries[0].select.comments, undefined);
+  assert.ok(sql.values.includes(member.id)); assert.ok(sql.values.includes('November'));
+  assert.ok(sql.sql.includes('GROUP BY')); assert.ok(!sql.sql.includes('student_phone'));
 });
 test('statistics endpoints reject wrong roles before database access', async () => {
   for (const [file, user] of [['app/api/recovery-admin/statistics/route.ts', recoveryExecutive], ['app/api/recovery-executive/statistics/route.ts', recoveryAdmin]]) {
@@ -835,31 +839,32 @@ test('admin recovery edits enforce same-origin requests', async () => {
 });
 
 test('unchanged overview sync avoids row downloads and the executive directory', async () => {
-  const database = { recoverySheetChange: { aggregate: async () => ({ _max: { id: 12n } }) }, recoveryLead: { findMany: async () => assert.fail('Unchanged sheet queried all rows') } };
+  const database = { $queryRaw: async () => [{ latest: 12n, floor: 1n }], recoveryLead: { findMany: async () => assert.fail('Unchanged sheet queried all rows') } };
   database.$transaction = callback => callback(database);
   const route = load('app/api/recovery-admin/overview/route.ts', { user: recoveryAdmin, db: database, onAdminClient: () => assert.fail('Polling loaded the executive directory') });
   const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-admin/overview?month=December&cursor=12'));
   assert.equal(result.status, 200); assert.equal(result.body.unchanged, true); assert.equal(result.body.cursor, '12');
   assert.equal(result.body.records.length, 0);
 });
-test('overview delta handles updates, deletions, and month moves without a full reload', async () => {
-  let changesQuery; let rowsQuery;
+test('sheet delta handles field patches, deletions and month moves without a full reload', async () => {
+  let sql;
   const database = {
-    recoverySheetChange: {
-      aggregate: async () => ({ _max: { id: 15n } }),
-      findMany: async query => { changesQuery = query; return [{ leadId: 'updated' }, { leadId: 'deleted' }, { leadId: 'moved' }]; },
-    },
-    recoveryLead: { findMany: async query => { rowsQuery = query; return [{ id: 'updated', selectedMonth: 'December' }]; } },
+    $queryRaw: async query => {
+      if (query.sql.includes(' AS latest')) return [{ latest: 15n, floor: 1n }];
+      sql = query;
+      return [
+        { id: 13n, leadId: 'updated', newMonth: 'December', patch: { id: 'updated', comments: 'Changed' } },
+        { id: 14n, leadId: 'deleted', newMonth: null, patch: null },
+        { id: 15n, leadId: 'moved', newMonth: 'January', patch: { id: 'moved', selectedMonth: 'January' } },
+      ];
+    }, recoveryLead: { findMany: () => assert.fail('Delta downloaded full student rows') },
   };
   database.$transaction = callback => callback(database);
-  const result = await load('lib/recovery/overview-sync.ts').overviewSnapshot(database, 'December', '12');
+  const result = await load('lib/recovery/sheet-sync.ts').sheetSnapshot(database, 'December', '12');
   assert.equal(result.cursor, '15'); assert.equal(result.reset, false);
   assert.deepEqual(JSON.parse(JSON.stringify(result.removedIds)), ['deleted', 'moved']);
-  assert.equal(changesQuery.where.OR[0].oldMonth, 'December');
-  assert.equal(changesQuery.where.OR[1].newMonth, 'December');
-  assert.equal(rowsQuery.where.selectedMonth, 'December');
-  assert.equal(rowsQuery.select.linkChangeToken, undefined);
-  assert.equal(rowsQuery.select.registrationAmount, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.records)), [{ id: 'updated', comments: 'Changed' }]);
+  assert.ok(sql.values.includes('December')); assert.ok(sql.sql.includes('old_month'));
 });
 test('sheet merge preserves row identities and touches only changed data', () => {
   const { mergeSheetRows } = load('lib/recovery/merge-sheet-rows.ts');
@@ -924,4 +929,78 @@ test('background sheet refresh preserves unchanged rows and server ordering', ()
   assert.equal(next[0].id, 'b');
   assert.notEqual(next[0], original[1]);
   assert.equal(next[1], original[0]);
+});
+
+test('field patches preserve static student details and merge by ID', () => {
+  const { mergeSheetRows } = load('lib/recovery/merge-sheet-rows.ts');
+  const rows = [{ id: 'a', studentName: 'A', studentPhone: '123', comments: '', remainingAmount: '100', paymentLinks: 'old' }, { id: 'b', studentName: 'B' }];
+  const changed = mergeSheetRows(rows, [{ id: 'a', remainingAmount: '40', paymentLinks: 'new' }]);
+  assert.equal(changed[0].studentPhone, '123'); assert.equal(changed[0].remainingAmount, '40'); assert.equal(changed[0].paymentLinks, 'new');
+  assert.equal(changed[1], rows[1]);
+  assert.equal(mergeSheetRows(changed, [{ id: 'a', remainingAmount: '40' }]), changed);
+});
+test('executive sync scopes previous/current ownership and removes reassigned students', async () => {
+  let changeQuery;
+  const database = { $queryRaw: async query => {
+    if (query.sql.includes(' AS latest')) return [{ latest: 20n, floor: 1n }];
+    changeQuery = query;
+    return [{ leadId: 'removed', owner: mainAdmin.id, patch: { id: 'removed', assignedTo: mainAdmin.id } }, { leadId: 'added', owner: member.id, patch: { id: 'added', studentName: 'A' } }];
+  }, recoveryLead: { findMany: () => assert.fail('Downloaded the full list') } };
+  database.$transaction = callback => callback(database);
+  const result = await load('lib/recovery/sheet-sync.ts').sheetSnapshot(database, null, '12', member.id);
+  assert.ok(changeQuery.sql.includes('old_assigned_to')); assert.ok(changeQuery.sql.includes('new_assigned_to')); assert.ok(changeQuery.values.includes(member.id));
+  assert.deepEqual(JSON.parse(JSON.stringify(result.removedIds)), ['removed']); assert.equal(result.records[0].id, 'added');
+});
+test('invalidated or future sync cursors force a complete scoped snapshot', async () => {
+  for (const cursor of ['0', '99']) {
+    let where;
+    const database = { $queryRaw: async () => [{ latest: 20n, floor: 10n }], recoveryLead: { findMany: async query => { where = query.where; return [{ id: 'fresh' }]; } } };
+    database.$transaction = callback => callback(database);
+    const result = await load('lib/recovery/sheet-sync.ts').sheetSnapshot(database, 'December', cursor, member.id);
+    assert.equal(result.reset, true); assert.equal(result.records[0].id, 'fresh'); assert.equal(where.assignedTo, member.id); assert.equal(where.selectedMonth, 'December');
+  }
+});
+test('server cache shares work, supports fresh bypass, and never retains failures', async () => {
+  const { cachedRecovery } = load('lib/recovery/cache.ts');
+  let count = 0;
+  const work = async () => ++count;
+  assert.deepEqual(await Promise.all([cachedRecovery('a', 10000, work), cachedRecovery('a', 10000, work)]), [1, 1]);
+  assert.equal(await cachedRecovery('a', 10000, work, true), 2);
+  await assert.rejects(cachedRecovery('failed', 10000, async () => { throw new Error('offline'); }), /offline/);
+  assert.equal(await cachedRecovery('failed', 10000, work), 3);
+});
+test('database aggregate summaries and daily totals match existing calculations', () => {
+  const rows = [
+    { assignedTo: 'a', paymentStatus: 'paid', leadStatus: 'called', amountMentioned: '1000', paidAt: '2026-11-26T10:00:00Z' },
+    { assignedTo: null, paymentStatus: 'paid', leadStatus: '__proto__', amountMentioned: 'bad', paidAt: null },
+    { assignedTo: 'a', paymentStatus: 'unpaid', leadStatus: '', amountMentioned: '5', paidAt: null },
+  ];
+  const { summarizeGroups, groupedDaily } = load('lib/recovery/statistics-aggregate.ts');
+  const { summarizeRecovery, dailyRecovery } = load('lib/recovery/summary.ts');
+  const groups = [{ assignedTo: 'a', payment: 'paid', status: 'called', total: 1, recoveredPaise: 100000, excludedAmounts: 0 }, { assignedTo: null, payment: 'paid', status: '__proto__', total: 1, recoveredPaise: 0, excludedAmounts: 1 }, { assignedTo: 'a', payment: 'unpaid', status: 'No status', total: 1, recoveredPaise: 0, excludedAmounts: 0 }];
+  assert.deepEqual(JSON.parse(JSON.stringify(summarizeGroups(groups))), JSON.parse(JSON.stringify(summarizeRecovery(rows))));
+  const period = { startedAt: '2026-11-25T00:00:00Z', endedAt: '2026-11-27T10:00:00Z' };
+  const actual = groupedDaily([{ date: '2026-11-26', paid: 1, recoveredPaise: 100000, excludedAmounts: 0 }], rows.length, 1, period, new Date());
+  assert.deepEqual(JSON.parse(JSON.stringify(actual)), JSON.parse(JSON.stringify(dailyRecovery(rows, period))));
+});
+test('payment progress fetches only newly changed successful items for the authorized job', async () => {
+  const calls = [];
+  const database = { recoveryPaymentJob: { findFirst: async query => { assert.equal(query.where.accountKey, 'rzp_test_example'); return { id: member.id, status: 'running' }; } },
+    recoveryPaymentItem: { groupBy: async () => [{ status: 'generated', _count: 20 }], findMany: async query => { assert.equal(query.take, 30); return []; } },
+    $queryRaw: async query => { calls.push(query); return query.sql.includes('max(id)') ? [{ latest: 22n }] : [{ leadId: 'new-student', url: 'https://example.com/new' }]; },
+  };
+  database.$transaction = callback => callback(database);
+  const { paymentJobView } = load('lib/recovery/payment-links.ts', { db: database, modules: { './razorpay.mjs': {} } });
+  const initial = await paymentJobView(member.id, 'rzp_test_example');
+  assert.equal(initial.updates.length, 0); assert.equal(initial.cursor, '22'); assert.equal(calls.length, 1);
+  const update = await paymentJobView(member.id, 'rzp_test_example', '20');
+  assert.equal(update.updates.length, 1); assert.equal(update.updates[0].leadId, 'new-student');
+  assert.ok(calls[2].values.includes(member.id)); assert.ok(calls[2].values.includes(20n)); assert.ok(calls[2].values.includes(22n));
+});
+test('unchanged recovered pages avoid fetching records, directories or month lists', async () => {
+  const database = { $queryRaw: async () => [{ latest: 10n, floor: 1n }], recoveryLead: { findMany: () => assert.fail('Downloaded unchanged page'), count: () => assert.fail('Counted unchanged page') } };
+  database.$transaction = callback => callback(database);
+  const route = load('app/api/recovery-executive/recovered-leads/route.ts', { user: recoveryExecutive, db: database });
+  const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-executive/recovered-leads?page=1&cursor=10'));
+  assert.equal(result.status, 200); assert.equal(result.body.unchanged, true);
 });

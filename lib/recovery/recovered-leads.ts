@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { json, apiError } from "@/lib/auth/http";
 import { AccessError } from "@/lib/auth/admin-access";
 import { requireRecoveryRole, recoveryExecutives } from "./allocation";
+import { cachedRecovery } from "./cache";
+import { pagedSnapshot } from "./paged-sync";
 export async function recoveredLeads(request: NextRequest, individual: boolean) {
   try {
     const user = await requireRecoveryRole(individual ? "recovery_executive" : "recovery_admin");
@@ -12,14 +14,15 @@ export async function recoveredLeads(request: NextRequest, individual: boolean) 
     const scope = { paymentStatus: { equals: "paid", mode: "insensitive" as const }, ...(individual ? { assignedTo: user.id } : {}) };
     const where = { ...scope, ...(month === null ? {} : { selectedMonth: month }) };
     const client = db();
-    const [[records, total], executives, monthRows] = await Promise.all([
-      client.$transaction([
-        client.recoveryLead.findMany({ where, orderBy: [{ paidAt: { sort: "desc", nulls: "last" } }, { id: "asc" }], skip: (page - 1) * 25, take: 25 }),
-        client.recoveryLead.count({ where }),
-      ]),
-      individual ? Promise.resolve([]) : recoveryExecutives(),
-      client.recoveryLead.findMany({ where: scope, distinct: ["selectedMonth"], select: { selectedMonth: true }, orderBy: { selectedMonth: "asc" } }),
+    const cursor = request.nextUrl.searchParams.get("cursor");
+    if (cursor !== null && !/^\d{1,19}$/.test(cursor)) throw new AccessError(400, "Invalid sync cursor.");
+    const snapshot = await pagedSnapshot(client, where, page, cursor, individual ? user.id : undefined);
+    if (cursor !== null) return json(snapshot);
+    const fresh = request.nextUrl.searchParams.get("fresh") === "1";
+    const [executives, monthRows] = await Promise.all([
+      individual ? Promise.resolve([]) : recoveryExecutives(fresh),
+      cachedRecovery(`months:recovered:${individual ? user.id : "admin"}`, 60000, () => client.recoveryLead.findMany({ where: scope, distinct: ["selectedMonth"], select: { selectedMonth: true }, orderBy: { selectedMonth: "asc" } }), fresh),
     ]);
-    return json({ records, total, executives, months: monthRows.map(row => row.selectedMonth), page, hasMore: page * 25 < total });
+    return json({ ...snapshot, executives, months: monthRows.map(row => row.selectedMonth) });
   } catch (error) { return apiError(error); }
 }

@@ -4,30 +4,38 @@ import { Link2, Loader2, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 type Update = { leadId: string; url: string };
-type Job = { mode: "test" | "live"; id: string; status: string; selectedMonth: string | null; total: number; counts: Record<string, number>; updates: Update[]; issues: { id: string; studentName: string; status: string; reason: string }[] };
+type Job = { cursor: string; mode: "test" | "live"; id: string; status: string; selectedMonth: string | null; total: number; counts: Record<string, number>; updates: Update[]; issues: { id: string; studentName: string; status: string; reason: string }[] };
 export function RecoveryPaymentLinks({ month, disabled, onUpdates }: { month: string | null; disabled: boolean; onUpdates: (updates: Update[]) => void }) {
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState("");
+  const requestOrder = useRef(0);
+  const acceptedOrder = useRef(0);
   const stopRequested = useRef(false);
-  const accept = useCallback((next: Job | null) => {
+  const progressCursor = useRef<{ id: string; cursor: string } | null>(null);
+  const accept = useCallback((next: Job | null, order: number) => {
+    if (order < acceptedOrder.current) return;
+    acceptedOrder.current = order;
     // A process response may race the Stop response. Never restart local polling
     // from an older running snapshot after the user requested a stop.
     if (stopRequested.current && next?.status === "running") return;
     if (next?.status === "stopped" || next?.status === "completed") stopRequested.current = false;
+    if (next) progressCursor.current = { id: next.id, cursor: next.cursor };
     setJob(next);
     if (next?.updates.length) onUpdates(next.updates);
   }, [onUpdates]);
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
+      const order = ++requestOrder.current;
       setChecking(true);
       try {
         const response = await fetch(`/api/recovery-admin/payment-links${month === null ? "" : `?month=${encodeURIComponent(month)}`}`, { cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not load payment-link progress.");
-        accept(data.job); setError("");
+        if (controller.signal.aborted) return;
+        accept(data.job, order); setError("");
       } catch (error) { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Could not load payment-link progress."); }
       finally { if (!controller.signal.aborted) setChecking(false); }
     }
@@ -43,16 +51,18 @@ export function RecoveryPaymentLinks({ month, disabled, onUpdates }: { month: st
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function tick() {
+      const order = ++requestOrder.current;
       let delay = 3000;
       try {
-        const response = await fetch("/api/recovery-admin/payment-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "process", jobId: id }), signal: controller.signal });
+        const response = await fetch("/api/recovery-admin/payment-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "process", jobId: id, cursor: progressCursor.current?.id === id ? progressCursor.current.cursor : null }), signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not continue generation.");
-        accept(data.job); setError("");
+        if (controller.signal.aborted) return;
+        accept(data.job, order); setError("");
         const counts = data.job.counts;
         const completed = (counts.generated || 0) + (counts.reused || 0) + (counts.skipped || 0) + (counts.failed || 0);
         // Continue promptly after useful work; back off while a worker owns the lease.
-        delay = completed > lastCompleted ? 200 : 1500;
+        delay = completed > lastCompleted ? 1000 : 2000;
         lastCompleted = completed;
         if (data.job.status === "stopped") { toast.success("Generation stopped. Existing links were kept."); return; }
         if (data.job.status === "completed") {
@@ -68,12 +78,13 @@ export function RecoveryPaymentLinks({ month, disabled, onUpdates }: { month: st
   async function act(action: "start" | "retry" | "stop" | "resume") {
     if (action === "stop") stopRequested.current = true;
     if (action === "start" || action === "resume") stopRequested.current = false;
+    const order = ++requestOrder.current;
     setBusy(true); setError("");
     try {
-      const response = await fetch("/api/recovery-admin/payment-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, month, jobId: job?.id }) });
+      const response = await fetch("/api/recovery-admin/payment-links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, month, jobId: job?.id, cursor: progressCursor.current?.id === job?.id ? progressCursor.current?.cursor : null }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not start payment-link generation.");
-      accept(data.job);
+      accept(data.job, order);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not generate payment links.";
       if (action === "stop") stopRequested.current = false;

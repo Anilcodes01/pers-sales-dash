@@ -1,4 +1,5 @@
 "use client";
+import { recoveryEditVersion } from "@/lib/recovery/client-edit-version";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SheetFind } from "./sheet-find";
 import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
@@ -12,6 +13,7 @@ import { CURRENT_MONTH, currentRecoveryMonth } from "@/lib/recovery/month";
 type Results = { months: string[]; records: AllocationStudent[]; total: number; hasMore: boolean; executives: { id: string; name: string; email: string }[] };
 export function RecoveredLeads({ individual = false }: { individual?: boolean }) {
   const sheet = useRef<HTMLDivElement>(null);
+  const cursor = useRef<string | null>(null);
   const [month, setMonth] = useState<string | null>(CURRENT_MONTH);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
@@ -20,13 +22,18 @@ export function RecoveredLeads({ individual = false }: { individual?: boolean })
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
-    async function load() {
+    async function load(): Promise<void> {
+      const editVersion = recoveryEditVersion();
+      cursor.current = null;
       setLoading(true); setError("");
       try {
         const monthQuery = month === null ? "" : `&month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`;
-        const response = await fetch(`/api/${individual ? "recovery-executive" : "recovery-admin"}/recovered-leads?page=${page}${monthQuery}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/${individual ? "recovery-executive" : "recovery-admin"}/recovered-leads?page=${page}${monthQuery}${revision ? "&fresh=1" : ""}`, { cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not load recovered leads.");
+        if (controller.signal.aborted) return;
+        if (recoveryEditVersion() !== editVersion) return await load();
+        cursor.current = data.cursor;
         setResults(data);
       } catch (error) {
         if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Could not load recovered leads.");
@@ -38,13 +45,14 @@ export function RecoveredLeads({ individual = false }: { individual?: boolean })
   const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
     if (Array.isArray(data.records)) setResults(current => {
       const incoming = data as unknown as Results;
-      return { ...incoming, records: reconcileSheetRows(current?.records || [], incoming.records) };
+      return { ...current, ...incoming, records: reconcileSheetRows(current?.records || [], incoming.records) };
     });
   }, []);
-  useRecoveryLiveRefresh(`/api/${individual ? "recovery-executive" : "recovery-admin"}/recovered-leads?page=${page}${month === null ? "" : `&month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, receiveLiveRows);
+  const syncStatus = useRecoveryLiveRefresh(`/api/${individual ? "recovery-executive" : "recovery-admin"}/recovered-leads?page=${page}${month === null ? "" : `&month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, receiveLiveRows, cursor);
   return <Card ref={sheet} className="csv-records-card recovery-sheet-card">
     <SheetFind rows={loading ? [] : results?.records || []} root={sheet} source={{ endpoint: `/api/${individual ? "recovery-executive" : "recovery-admin"}/sheet-search?scope=recovered${month === null ? "" : `&month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, onPage: setPage }}/>
     <div className="panel-heading"><div><h2>Recovered leads{!loading && !error && results ? ` (${results.total})` : ""}</h2><p className="csv-help">{individual ? "Paid leads currently allocated to you." : "Paid leads across all recovery executives, including unassigned leads."}</p></div><div className="recovery-sheet-actions"><RecoveryMonthFilter month={month} months={results?.months || []} onChange={value => { setMonth(value); setPage(1); }} disabled={loading}/><Button variant="outline" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw/>Refresh</Button></div></div>
+    {syncStatus === "reconnecting" && <p role="status">Reconnecting… displayed data may be out of date.</p>}
     {loading ? <p role="status">Loading recovered leads…</p> : error ? <p role="alert">{error} Use Refresh to retry.</p> : results?.records.length ? <AllocationSheet searchable={false} rows={results.records} executives={results.executives} executive={individual} adminEditable={!individual} onStatusSaved={(id, field, value) => setResults(current => {
       if (!current) return current;
       const remove = field === "paymentStatus" && value !== "paid";

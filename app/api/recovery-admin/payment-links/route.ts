@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const month = request.nextUrl.searchParams.get("month");
     const active = await db().recoveryPaymentJob.findFirst({ where: { accountKey: config.key, status: { in: ["running", "stopping"] } } });
     const job = active || await db().recoveryPaymentJob.findFirst({ where: { accountKey: config.key, selectedMonth: month }, orderBy: { createdAt: "desc" } });
-    return json({ mode: config.mode, job: job ? await paymentJobView(job.id, config.key) : null });
+    return json({ mode: config.mode, job: job ? await paymentJobView(job.id, config.key, request.nextUrl.searchParams.get("cursor")) : null });
   } catch (error) { return apiError(error); }
 }
 export async function POST(request: NextRequest) {
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       const jobId = job.id;
       // Kick off one bounded batch; the page or standalone worker drains the durable queue.
       after(async () => { try { await processPaymentBatch(client, config, jobId); } catch { /* Job remains resumable. */ } });
-      return json({ job: await paymentJobView(job.id, config.key) });
+      return json({ job: await paymentJobView(job.id, config.key, typeof body.cursor === "string" ? body.cursor : null) });
     }
     if (body.action !== "process" && body.action !== "retry" && body.action !== "stop" && body.action !== "resume") throw new AccessError(400, "Choose a payment-link action.");
     if (typeof body.jobId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.jobId)) throw new AccessError(400, "Invalid job.");
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       await client.recoveryPaymentJob.updateMany({ where: { id: job.id, accountKey: config.key, status: "running" }, data: { status: "stopping" } });
       // No active worker means stopping can finish immediately.
       await client.recoveryPaymentJob.updateMany({ where: { id: job.id, status: "stopping", OR: [{ lockedUntil: null }, { lockedUntil: { lt: new Date() } }] }, data: { status: "stopped", lockToken: null, lockedUntil: null } });
-      return json({ job: await paymentJobView(job.id, config.key) });
+      return json({ job: await paymentJobView(job.id, config.key, typeof body.cursor === "string" ? body.cursor : null) });
     }
     if (body.action === "resume") {
       const resumed = await client.recoveryPaymentJob.updateMany({ where: { id: job.id, status: "stopped" }, data: { status: "running" } });
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       });
     }
     await processPaymentBatch(client, config, job.id);
-    return json({ job: await paymentJobView(job.id, config.key) });
+    return json({ job: await paymentJobView(job.id, config.key, typeof body.cursor === "string" ? body.cursor : null) });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") return json({ error: "Another generation job is already active. Refresh to see its progress." }, 409);
     return apiError(error);

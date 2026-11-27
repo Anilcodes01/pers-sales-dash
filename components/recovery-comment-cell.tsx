@@ -1,4 +1,5 @@
 "use client";
+import { notifyRecoveryEdit } from "@/lib/recovery/client-edit-version";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -12,6 +13,7 @@ export function RecoveryCommentCell({ id, value, student, onSaved }: { id: strin
     try {
       const response = await fetch(`/api/recovery-executive/leads/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comments: draft }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not save comments.");
+      notifyRecoveryEdit();
       onSaved(data.comments); setEditing(false); toast.success("Comments saved.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save comments."); }
     finally { setSaving(false); }

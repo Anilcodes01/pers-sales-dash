@@ -1,4 +1,5 @@
 "use client";
+import { notifyRecoveryEdit } from "@/lib/recovery/client-edit-version";
 import { useState } from "react";
 import { toast } from "sonner";
 import { statusColors } from "@/lib/recovery/status-colors";
@@ -22,6 +23,7 @@ export function RecoveryStatusCell({ id, field, value, student, onSaved, admin =
     try {
       const response = await fetch(`/api/${admin ? "recovery-admin" : "recovery-executive"}/leads/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [field]: next }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not update status.");
+      notifyRecoveryEdit();
       onSaved(data[field], data); toast.success("Status updated.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update status."); }
     finally { setPending(null); setSaving(false); }

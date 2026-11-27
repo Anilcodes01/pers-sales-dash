@@ -1,7 +1,8 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { recoveryEditVersion } from "@/lib/recovery/client-edit-version";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
-import { reconcileSheetRows } from "@/lib/recovery/merge-sheet-rows";
+import { mergeSheetRows } from "@/lib/recovery/merge-sheet-rows";
 import { toast } from "sonner";
 import { RefreshCw, Loader2 } from "lucide-react";
 import { AllocationSheet, type AllocationStudent } from "./allocation-sheet";
@@ -26,6 +27,7 @@ export function RecoveryAllocation({
 }: {
   executive?: boolean;
 }) {
+  const cursor = useRef<string | null>(null);
   const [executiveMonth, setExecutiveMonth] = useState<string | null>(
     CURRENT_MONTH,
   );
@@ -39,7 +41,6 @@ export function RecoveryAllocation({
   const [month, setMonth] = useState<string | null>(CURRENT_MONTH);
   const [selected, setSelected] = useState<string[]>([]);
   const [records, setRecords] = useState<Student[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -49,7 +50,7 @@ export function RecoveryAllocation({
     const controller = new AbortController();
     async function load() {
       try {
-        const response = await fetch("/api/recovery-admin/allocation/options", {
+        const response = await fetch(`/api/recovery-admin/allocation/options${revision ? "?fresh=1" : ""}`, {
           cache: "no-store",
           signal: controller.signal,
         });
@@ -71,7 +72,9 @@ export function RecoveryAllocation({
   useEffect(() => {
     if (!executive && month === null) return;
     const controller = new AbortController();
-    async function load() {
+    async function load(): Promise<void> {
+      const editVersion = recoveryEditVersion();
+      cursor.current = null;
       setLoading(true);
       setFailed(false);
       setResolvedCurrentMonth(currentRecoveryMonth());
@@ -86,9 +89,11 @@ export function RecoveryAllocation({
         const data = await response.json();
         if (!response.ok)
           throw new Error(data.error || "Could not load students.");
+        if (controller.signal.aborted) return;
+        if (recoveryEditVersion() !== editVersion) return await load();
+        cursor.current = data.cursor;
         setResolvedCurrentMonth(currentRecoveryMonth());
         setRecords(data.records);
-        setTotal(data.total);
         setSelected([]);
         setFirstRow(""); setLastRow("");
       } catch (error) {
@@ -106,10 +111,9 @@ export function RecoveryAllocation({
     return () => controller.abort();
   }, [executive, month, revision]);
   const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
-    if (Array.isArray(data.records)) setRecords(current => reconcileSheetRows(current, data.records as Student[]));
-    if (typeof data.total === "number") setTotal(data.total);
-  }, []);
-  useRecoveryLiveRefresh(executive ? "/api/recovery-executive/leads" : null, receiveLiveRows);
+    if (Array.isArray(data.records)) setRecords(current => mergeSheetRows(current, data.records as Student[], (data.removedIds || []) as string[], Boolean(data.reset), executive ? "assignedAt" : "createdAt"));
+  }, [executive]);
+  const syncStatus = useRecoveryLiveRefresh(executive ? "/api/recovery-executive/leads" : month === null ? null : `/api/recovery-admin/allocation?month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`, receiveLiveRows, cursor);
   async function allocate(ids: string[], target: string, reassign = true) {
     setBusy(true);
     try {
@@ -294,8 +298,9 @@ export function RecoveryAllocation({
       ) : (
         <>
 
+          {syncStatus === "reconnecting" && <p role="status">Reconnecting… displayed data may be out of date. Use Refresh to retry now.</p>}
           <p className="csv-help">
-            {executive ? visibleRecords.length : total} students
+            {visibleRecords.length} students
             {executive ? " assigned to you" : " in this month"}.
           </p>
           {visibleRecords.length ? (

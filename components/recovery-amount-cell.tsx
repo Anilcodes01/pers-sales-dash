@@ -1,4 +1,5 @@
 "use client";
+import { notifyRecoveryEdit } from "@/lib/recovery/client-edit-version";
 import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -18,6 +19,7 @@ export function RecoveryAmountCell({ id, value, onSaved }: { id: string; value: 
         if (typeof data.pendingAmount === "string") setPendingAmount(data.pendingAmount);
         throw new Error(data.error || "Could not replace the payment link.");
       }
+      notifyRecoveryEdit();
       onSaved(data.remainingAmount, data.paymentLinks, data.paymentStatus);
       setEditing(false); toast.success(data.reconciled ? "Razorpay confirms this payment is complete. Student marked Paid; amount unchanged." : "Amount and payment link updated.");
     } catch (error) {

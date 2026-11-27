@@ -3,13 +3,17 @@ import { currentUser } from "@/lib/auth/session";
 import { AccessError } from "@/lib/auth/admin-access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { db } from "@/lib/db";
+import { cachedRecovery } from "./cache";
 export async function requireRecoveryRole(role: "recovery_admin" | "recovery_executive") {
   const user = await currentUser();
   if (!user) throw new AccessError(401, "Sign in to continue.");
   if (user.app_metadata.role !== role) throw new AccessError(403, "You do not have access to this recovery workspace.");
   return user;
 }
-export async function recoveryExecutives() {
+export function recoveryExecutives(fresh = false) {
+  return cachedRecovery("directory:recovery-executives", 60000, loadRecoveryExecutives, fresh);
+}
+async function loadRecoveryExecutives() {
   const admin = createAdminClient().auth.admin;
   const executives: { id: string; name: string; email: string }[] = [];
   for (let page = 1; ; page++) {

@@ -1,4 +1,5 @@
 "use client";
+import { recoveryEditVersion } from "@/lib/recovery/client-edit-version";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { mergeSheetRows } from "@/lib/recovery/merge-sheet-rows";
 import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
@@ -26,19 +27,22 @@ export function RecoveryOverview() {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    async function load() {
+    async function load(): Promise<void> {
+      const editVersion = recoveryEditVersion();
       cursor.current = null;
       setLoading(true);
       setFailed(false);
       setCurrentMonthName(currentRecoveryMonth());
       try {
         const response = await fetch(
-          `/api/recovery-admin/overview${month === null ? "" : `?month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`,
+          `/api/recovery-admin/overview?${month === null ? "" : `month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}&`}${revision ? "fresh=1" : ""}`,
           { cache: "no-store", signal: controller.signal },
         );
         const data = await response.json();
         if (!response.ok)
           throw new Error(data.error || "Could not load recovery students.");
+        if (controller.signal.aborted) return;
+        if (recoveryEditVersion() !== editVersion) return await load();
         setRecords(rows => mergeSheetRows(rows, data.records, [], true));
         cursor.current = data.cursor;
         setMonths(data.months);
@@ -60,10 +64,11 @@ export function RecoveryOverview() {
   const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
     if (Array.isArray(data.records)) setRecords(rows => mergeSheetRows(rows, data.records as AllocationStudent[], Array.isArray(data.removedIds) ? data.removedIds as string[] : [], Boolean(data.reset)));
   }, []);
-  useRecoveryLiveRefresh(`/api/recovery-admin/overview${month === null ? "" : `?month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, receiveLiveRows, cursor);
-  const applyPaymentLinks = useCallback((updates: { leadId: string; url: string }[]) => {
-    const links = new Map(updates.map(update => [update.leadId, update.url]));
-    setRecords(rows => rows.map(row => links.has(row.id) && links.get(row.id) !== row.paymentLinks ? { ...row, paymentLinks: links.get(row.id)! } : row));
+  const syncStatus = useRecoveryLiveRefresh(`/api/recovery-admin/overview${month === null ? "" : `?month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, receiveLiveRows, cursor);
+  const applyPaymentLinks = useCallback(() => {
+    // Progress notifications prompt the ordered sheet stream; they never write
+    // unversioned URLs over a newer executive edit.
+    window.dispatchEvent(new Event("recovery-sheet-refresh"));
   }, []);
   const saveCell = useCallback((id: string, field: keyof AllocationStudent, value: string) => setRecords(rows => rows.map(row => row.id === id && row[field] !== value ? { ...row, [field]: value } : row)), []);
   return (
@@ -91,6 +96,7 @@ export function RecoveryOverview() {
           <RefreshCw /> Refresh
         </Button>
       </div>
+      {syncStatus === "reconnecting" && <p role="status">Reconnecting… displayed data may be out of date. Use Refresh to retry now.</p>}
       {loading ? (
         <p>Loading students…</p>
       ) : failed ? (

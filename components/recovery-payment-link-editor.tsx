@@ -1,4 +1,5 @@
 "use client";
+import { notifyRecoveryEdit } from "@/lib/recovery/client-edit-version";
 import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
@@ -14,6 +15,7 @@ export function RecoveryPaymentLinkEditor({ id, value, onSaved }: { id: string; 
       const response = await fetch(`/api/recovery-admin/leads/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ paymentLinks: draft }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Could not update payment link.");
+      notifyRecoveryEdit();
       onSaved(data.paymentLinks); setEditing(false); toast.success("Payment link updated.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update payment link."); }
     finally { setSaving(false); }

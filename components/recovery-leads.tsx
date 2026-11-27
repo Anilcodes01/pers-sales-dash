@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { recoveryEditVersion } from "@/lib/recovery/client-edit-version";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { VirtualTableBody } from "./virtual-table-body";
 import { toast } from "sonner";
 import { Upload, Download, Loader2, RefreshCw } from "lucide-react";
@@ -12,6 +13,8 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card } from "./ui/card";
 import { SheetFind } from "./sheet-find";
+import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
+import { reconcileSheetRows } from "@/lib/recovery/merge-sheet-rows";
 import {
   Table,
   TableHeader,
@@ -68,6 +71,7 @@ function LeadsTable({ rows, saved = false, onSaved }: { rows: Row[]; saved?: boo
 }
 export function RecoveryLeads() {
   const sheet = useRef<HTMLDivElement>(null);
+  const cursor = useRef<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<{
     totalRows: number;
@@ -84,7 +88,9 @@ export function RecoveryLeads() {
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const controller = new AbortController();
-    async function load() {
+    async function load(): Promise<void> {
+      const editVersion = recoveryEditVersion();
+      cursor.current = null;
       setLoading(true);
       setFailed(false);
       try {
@@ -95,6 +101,9 @@ export function RecoveryLeads() {
         const data = await response.json();
         if (!response.ok)
           throw new Error(data.error || "Could not load recovery leads.");
+        if (controller.signal.aborted) return;
+        if (recoveryEditVersion() !== editVersion) return await load();
+        cursor.current = data.cursor;
         setRecords(data.records);
         setTotal(data.total);
         setHasMore(data.hasMore);
@@ -113,6 +122,12 @@ export function RecoveryLeads() {
     void load();
     return () => controller.abort();
   }, [page, revision]);
+  const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
+    if (Array.isArray(data.records)) setRecords(current => reconcileSheetRows(current as (Row & { id: string })[], data.records as (Row & { id: string })[]));
+    if (typeof data.total === "number") setTotal(data.total);
+    if (typeof data.hasMore === "boolean") setHasMore(data.hasMore);
+  }, []);
+  const syncStatus = useRecoveryLiveRefresh(`/api/recovery-admin/leads?page=${page}`, receiveLiveRows, cursor);
   async function upload(action: "preview" | "import") {
     if (!file) return;
     if (
@@ -220,6 +235,7 @@ export function RecoveryLeads() {
             <RefreshCw /> Refresh
           </Button>
         </div>
+        {syncStatus === "reconnecting" && <p role="status">Reconnecting… displayed data may be out of date.</p>}
         {loading ? (
           <p>Loading students…</p>
         ) : failed ? (

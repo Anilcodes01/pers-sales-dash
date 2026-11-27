@@ -30,29 +30,33 @@ export function RecoveryStatisticsPanel({ individual = false, month, months = []
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
   const [revision, setRevision] = useState(0);
-  const cache = useRef(new Map<string, RecoveryStatisticsData>());
+  const cache = useRef(new Map<string, { data: RecoveryStatisticsData; until: number }>());
+  const forceRefresh = useRef(false);
   const selectedMonth = panelMonth === undefined ? (month === undefined ? CURRENT_MONTH : month) : panelMonth;
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
     const key = JSON.stringify([individual, selectedMonth, revision]);
     async function load() {
-      const cached = cache.current.get(key);
-      if (cached) { setStatistics(cached); setLoading(false); setFailed(false); return; }
+      const fresh = forceRefresh.current;
+      forceRefresh.current = false;
+      const cached = fresh ? undefined : cache.current.get(key);
+      if (cached && cached.until > Date.now()) { setStatistics(cached.data); setLoading(false); setFailed(false); return; }
       setLoading(true); setFailed(false);
       try {
         const resolved = selectedMonth === CURRENT_MONTH ? currentRecoveryMonth() : selectedMonth;
-        const response = await fetch(`/api/${individual ? "recovery-executive" : "recovery-admin"}/statistics${resolved === null ? "" : `?month=${encodeURIComponent(resolved)}`}`, { cache: "no-store", signal: controller.signal });
+        const response = await fetch(`/api/${individual ? "recovery-executive" : "recovery-admin"}/statistics?${resolved === null ? "" : `month=${encodeURIComponent(resolved)}&`}${fresh ? "fresh=1" : ""}`, { cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Could not load statistics.");
-        cache.current.set(key, data); setStatistics(data);
+        if (controller.signal.aborted) return;
+        cache.current.set(key, { data, until: Date.now() + 25000 }); setStatistics(data);
       } catch { if (!controller.signal.aborted) setFailed(true); }
       finally { if (!controller.signal.aborted) setLoading(false); }
     }
     void load(); return () => controller.abort();
   }, [open, individual, selectedMonth, revision]);
   useEffect(() => {
-    const refresh = () => { cache.current.clear(); setRevision(value => value + 1); };
+    const refresh = () => { forceRefresh.current = true; cache.current.clear(); setRevision(value => value + 1); };
     window.addEventListener("recovery-period-changed", refresh);
     return () => window.removeEventListener("recovery-period-changed", refresh);
   }, []);
@@ -62,5 +66,5 @@ export function RecoveryStatisticsPanel({ individual = false, month, months = []
     return () => clearInterval(timer);
   }, [open]);
   if (!state) return null;
-  return <Dialog.Root open={open} onOpenChange={value => state.setOpenPath(value ? pathname : null)}><Dialog.Portal><Dialog.Overlay className="statistics-panel-overlay"/><Dialog.Content className="statistics-panel" onCloseAutoFocus={event => { event.preventDefault(); document.querySelector<HTMLButtonElement>(".statistics-navbar-button")?.focus(); }}><header className="statistics-panel-heading"><div><Dialog.Title>Recovery statistics</Dialog.Title><Dialog.Description>{individual ? "Your assigned students" : "Recovery overview"}</Dialog.Description></div><div className="statistics-heading-actions"><label className="statistics-month-filter">Month<RecoveryMonthFilter month={selectedMonth} months={statistics?.months || months} currentMonthName={currentMonthName} onChange={setPanelMonth} disabled={loading} label="Statistics month"/></label><Button variant="ghost" size="icon" aria-label="Refresh statistics" title="Refresh statistics" disabled={loading} onClick={() => { cache.current.clear(); setRevision(value => value + 1); }}><RefreshCw className={loading ? "animate-spin" : ""}/></Button><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="Close statistics"><X/></Button></Dialog.Close></div></header><div className="statistics-panel-body">{loading ? <p>Loading statistics…</p> : failed ? <p>Statistics could not be loaded. Use Refresh above to retry.</p> : statistics ? <RecoveryLeaderboard statistics={statistics} individual={individual}/> : <p>Loading statistics…</p>}</div></Dialog.Content></Dialog.Portal></Dialog.Root>;
+  return <Dialog.Root open={open} onOpenChange={value => state.setOpenPath(value ? pathname : null)}><Dialog.Portal><Dialog.Overlay className="statistics-panel-overlay"/><Dialog.Content className="statistics-panel" onCloseAutoFocus={event => { event.preventDefault(); document.querySelector<HTMLButtonElement>(".statistics-navbar-button")?.focus(); }}><header className="statistics-panel-heading"><div><Dialog.Title>Recovery statistics</Dialog.Title><Dialog.Description>{individual ? "Your assigned students" : "Recovery overview"}</Dialog.Description></div><div className="statistics-heading-actions"><label className="statistics-month-filter">Month<RecoveryMonthFilter month={selectedMonth} months={statistics?.months || months} currentMonthName={currentMonthName} onChange={setPanelMonth} disabled={loading} label="Statistics month"/></label><Button variant="ghost" size="icon" aria-label="Refresh statistics" title="Refresh statistics" disabled={loading} onClick={() => { forceRefresh.current = true; cache.current.clear(); setRevision(value => value + 1); }}><RefreshCw className={loading ? "animate-spin" : ""}/></Button><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="Close statistics"><X/></Button></Dialog.Close></div></header><div className="statistics-panel-body">{loading ? <p>Loading statistics…</p> : failed ? <p>Statistics could not be loaded. Use Refresh above to retry.</p> : statistics ? <RecoveryLeaderboard statistics={statistics} individual={individual}/> : <p>Loading statistics…</p>}</div></Dialog.Content></Dialog.Portal></Dialog.Root>;
 }
