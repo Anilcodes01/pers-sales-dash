@@ -14,7 +14,9 @@ import {
   defaultRangeExtractor,
   type Range,
 } from "@tanstack/react-virtual";
+import { useTableViewport } from "./use-table-viewport";
 import { AllocationSheetRow } from "./allocation-sheet-row";
+import { SheetFind } from "./sheet-find";
 import { leadColumns, type LeadValues } from "@/lib/recovery/columns";
 import { selectionRange } from "@/lib/recovery/selection";
 export type AllocationStudent = LeadValues & {
@@ -32,7 +34,9 @@ export function AllocationSheet({
   executive,
   readOnly = false,
   adminEditable = false,
-  virtualized = false,
+  virtualized = true,
+  fillViewport = true,
+  searchable = true,
   onStatusSaved,
   offset = 0,
 }: {
@@ -45,6 +49,8 @@ export function AllocationSheet({
   readOnly?: boolean;
   adminEditable?: boolean;
   virtualized?: boolean;
+  fillViewport?: boolean;
+  searchable?: boolean;
   offset?: number;
   onStatusSaved?: (
     id: string,
@@ -60,6 +66,7 @@ export function AllocationSheet({
   "use no memo"; // TanStack Virtual owns mutable viewport measurements.
   const sheet = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
+  useTableViewport(scroll, virtualized && fillViewport);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
   const pinIndex = pinnedId ? rows.findIndex((row) => row.id === pinnedId) : -1;
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
@@ -212,16 +219,23 @@ export function AllocationSheet({
     if (!virtualized || !element) return;
     let frame = 0;
     function navigate(event: Event) {
-      const { rowIndex, columnIndex } = (
-        event as CustomEvent<{ rowIndex: number; columnIndex: number }>
+      const { rowIndex, columnIndex, search } = (
+        event as CustomEvent<{ rowIndex: number; columnIndex: number; search?: string }>
       ).detail;
       if (rowIndex < 0 || rowIndex >= rows.length) return;
       setPinnedId(rows[rowIndex].id);
       virtualizer.scrollToIndex(rowIndex, { align: "auto" });
       frame = requestAnimationFrame(() => {
-        const cell = element?.querySelector<HTMLTableRowElement>(
+        const row = element?.querySelector<HTMLTableRowElement>(
           `tr[data-student-index="${rowIndex}"]`,
-        )?.cells[columnIndex];
+        );
+        if (search) {
+          const cell = Array.from(row?.querySelectorAll<HTMLElement>("td") || []).find(cell => (cell.dataset.copyValue || cell.textContent || "").toLowerCase().includes(search));
+          cell?.setAttribute("data-sheet-search-match", "true");
+          cell?.scrollIntoView({ block: "nearest", inline: "nearest" });
+          return;
+        }
+        const cell = row?.cells[columnIndex];
         cell?.click();
         cell?.focus({ preventScroll: true });
       });
@@ -315,6 +329,7 @@ export function AllocationSheet({
         gesture.current = null;
       }}
     >
+      {searchable && <SheetFind rows={rows} root={sheet}/>}
       {!executive && !readOnly && (
         <label className="allocation-select-all">
           <input

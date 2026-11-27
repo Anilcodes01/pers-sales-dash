@@ -21,6 +21,7 @@ export const AllocationSheetRow = memo(function AllocationSheetRow({ row, index,
               <tr
                 ref={measure}
                 data-index={index}
+                data-sheet-row-id={row.id}
                 aria-rowindex={index + 2}
                 data-student-index={index}
                 aria-selected={!executive && selected}

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { VirtualTableBody } from "./virtual-table-body";
 import { toast } from "sonner";
 import { Upload, FileCheck2, Loader2, Download, RefreshCw } from "lucide-react";
 import { Button } from "./ui/button";
@@ -16,7 +17,6 @@ import {
   Table,
   TableHeader,
   TableHead,
-  TableBody,
   TableRow,
   TableCell,
 } from "./ui/table";
@@ -99,8 +99,8 @@ export function RowsTable({
           ))}
         </TableRow>
       </TableHeader>
-      <TableBody>
-        {rows.map((row, index) => (
+      <VirtualTableBody rows={rows} columns={10 + (admin ? 3 : 0) + (timestamps ? 2 : 0)} rowKey={(row, index) => row.id || index}>
+        {(row, index) => (
           <TableRow key={row.id || index}>
             {admin && (
               <>
@@ -144,8 +144,8 @@ export function RowsTable({
               </>
             )}
           </TableRow>
-        ))}
-      </TableBody>
+        )}
+      </VirtualTableBody>
     </Table>
   );
 }

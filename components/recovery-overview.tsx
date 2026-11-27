@@ -110,6 +110,7 @@ export function RecoveryOverview() {
               readOnly
               adminEditable
               virtualized
+              fillViewport
               onStatusSaved={saveCell}
             />
           )}

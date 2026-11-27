@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
+import { reconcileSheetRows } from "@/lib/recovery/merge-sheet-rows";
 import { toast } from "sonner";
 import { RefreshCw, Loader2 } from "lucide-react";
 import { AllocationSheet, type AllocationStudent } from "./allocation-sheet";
@@ -105,7 +106,7 @@ export function RecoveryAllocation({
     return () => controller.abort();
   }, [executive, month, revision]);
   const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
-    if (Array.isArray(data.records)) setRecords(data.records as Student[]);
+    if (Array.isArray(data.records)) setRecords(current => reconcileSheetRows(current, data.records as Student[]));
     if (typeof data.total === "number") setTotal(data.total);
   }, []);
   useRecoveryLiveRefresh(executive ? "/api/recovery-executive/leads" : null, receiveLiveRows);

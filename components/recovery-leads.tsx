@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { VirtualTableBody } from "./virtual-table-body";
 import { toast } from "sonner";
 import { Upload, Download, Loader2, RefreshCw } from "lucide-react";
 import { RecoveryStatusCell } from "./recovery-status-cell";
@@ -10,11 +11,11 @@ import { leadColumns, type LeadValues } from "@/lib/recovery/columns";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Card } from "./ui/card";
+import { SheetFind } from "./sheet-find";
 import {
   Table,
   TableHeader,
   TableHead,
-  TableBody,
   TableRow,
   TableCell,
 } from "./ui/table";
@@ -35,9 +36,9 @@ function LeadsTable({ rows, saved = false, onSaved }: { rows: Row[]; saved?: boo
           )}
         </TableRow>
       </TableHeader>
-      <TableBody>
-        {rows.map((row, index) => (
-          <TableRow key={row.id || index}>
+      <VirtualTableBody rows={rows} columns={Object.keys(leadColumns).length + (saved ? 2 : 0)} rowKey={(row, index) => row.id || index}>
+        {(row, index) => (
+          <TableRow key={row.id || index} data-sheet-row-id={row.id || String(index)}>
             {(Object.keys(leadColumns) as (keyof LeadValues)[]).map((key) => (
               <TableCell key={key}>
                 {saved && row.id && (key === "paymentStatus" || key === "leadStatus") ? <RecoveryStatusCell admin id={row.id} field={key} student={row.studentName} value={row[key]} onSaved={(value, changes) => { onSaved?.(row.id!, key, value); if (key === "leadStatus" && changes?.paymentStatus) onSaved?.(row.id!, "paymentStatus", changes.paymentStatus); }}/> : saved && row.id && key === "paymentLinks" ? <RecoveryPaymentLinkEditor id={row.id} value={row[key]} onSaved={value => onSaved?.(row.id!, key, value)}/> : key === "paymentStatus" || key === "leadStatus" ? (
@@ -60,12 +61,13 @@ function LeadsTable({ rows, saved = false, onSaved }: { rows: Row[]; saved?: boo
               </>
             )}
           </TableRow>
-        ))}
-      </TableBody>
+        )}
+      </VirtualTableBody>
     </Table>
   );
 }
 export function RecoveryLeads() {
+  const sheet = useRef<HTMLDivElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<{
     totalRows: number;
@@ -206,7 +208,8 @@ export function RecoveryLeads() {
           <LeadsTable rows={preview.preview} />
         </Card>
       )}
-      <Card className="csv-records-card">
+      <Card ref={sheet} className="csv-records-card">
+        <SheetFind rows={loading ? [] : records} root={sheet} source={{ endpoint: "/api/recovery-admin/sheet-search?scope=leads", onPage: setPage }}/>
         <div className="panel-heading">
           <h2>Recovery leads{!loading && !failed ? ` (${total})` : ""}</h2>
           <Button

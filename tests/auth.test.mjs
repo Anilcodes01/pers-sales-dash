@@ -875,3 +875,53 @@ test('sheet merge preserves row identities and touches only changed data', () =>
   const reset = mergeSheetRows(updated, [{ ...first }], [], true);
   assert.equal(reset.length, 1); assert.equal(reset[0], first);
 });
+
+test('sheet search returns page positions without returning student data', async () => {
+  const ordered = Array.from({ length: 60 }, (_, i) => ({ id: `lead-${i}` }));
+  const calls = [];
+  const result = await load('app/api/recovery-admin/sheet-search/route.ts', {
+    user: { ...member, app_metadata: { role: 'recovery_admin' } },
+    db: { recoveryLead: { findMany: args => { calls.push(args); return Promise.resolve(args.where.OR ? [ordered[26], ordered[51]] : ordered); } }, $transaction: promises => Promise.all(promises) },
+  }).GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-admin/sheet-search?scope=leads&q=pooja'));
+  assert.equal(result.status, 200);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.body.matches)), [{ id: 'lead-26', index: 26, page: 2 }, { id: 'lead-51', index: 51, page: 3 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls[0].select)), { id: true });
+  assert.equal(calls[1].where.OR[0].timestamp.contains, 'pooja');
+  assert.equal(calls[1].where.OR[0].timestamp.mode, 'insensitive');
+});
+test('executive recovered-sheet search applies assignment, paid, and month scopes', async () => {
+  const user = { ...member, app_metadata: { role: 'recovery_executive' } };
+  const calls = [];
+  await load('app/api/recovery-executive/sheet-search/route.ts', {
+    user, db: { recoveryLead: { findMany: args => { calls.push(args); return Promise.resolve([]); } }, $transaction: promises => Promise.all(promises) },
+  }).GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-executive/sheet-search?scope=recovered&month=December&q=paid'));
+  assert.equal(calls.length, 2);
+  for (const call of calls) {
+    assert.equal(call.where.assignedTo, user.id);
+    assert.equal(call.where.paymentStatus.equals, 'paid');
+    assert.equal(call.where.selectedMonth, 'December');
+  }
+  assert.equal(calls[0].orderBy[0].paidAt.nulls, 'last');
+});
+test('sheet search rejects unauthorized roles and invalid scopes before database access', async () => {
+  for (const [user, path, scope, status] of [
+    [member, 'recovery-admin', 'leads', 403],
+    [null, 'recovery-admin', 'leads', 401],
+    [{ ...member, app_metadata: { role: 'recovery_executive' } }, 'recovery-executive', 'leads', 400],
+  ]) {
+    let touched = false;
+    const result = await load(`app/api/${path}/sheet-search/route.ts`, { user, onDb: () => { touched = true; } }).GET(request({}, 'http://localhost:3000', `http://localhost:3000/api/${path}/sheet-search?scope=${scope}&q=test`));
+    assert.equal(result.status, status);
+    assert.equal(touched, false);
+  }
+});
+
+test('background sheet refresh preserves unchanged rows and server ordering', () => {
+  const { reconcileSheetRows } = load('lib/recovery/merge-sheet-rows.ts');
+  const original = [{ id: 'a', paymentStatus: 'paid' }, { id: 'b', paymentStatus: '' }];
+  assert.equal(reconcileSheetRows(original, original.map(row => ({ ...row }))), original);
+  const next = reconcileSheetRows(original, [{ ...original[1], paymentStatus: 'paid' }, { ...original[0] }]);
+  assert.equal(next[0].id, 'b');
+  assert.notEqual(next[0], original[1]);
+  assert.equal(next[1], original[0]);
+});

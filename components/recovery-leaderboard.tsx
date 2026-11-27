@@ -1,3 +1,5 @@
+"use client";
+import { VirtualTableBody } from "./virtual-table-body";
 import {
   dailyRecovery,
   summarizeRecovery,
@@ -123,7 +125,7 @@ export function RecoveryLeaderboard({
       {!individual && (
         <>
           <h2 className="recovery-leaderboard-title">Executive leaderboard</h2>
-          <div className="recovery-leaderboard-scroll">
+          <div className="recovery-leaderboard-scroll virtual-table-scroll" data-virtual-scroll>
             <table className="recovery-leaderboard-table">
               <thead>
                 <tr>
@@ -144,8 +146,8 @@ export function RecoveryLeaderboard({
                   ))}
                 </tr>
               </thead>
-              <tbody>
-                {leaders.map((person, index) => (
+              <VirtualTableBody rows={leaders} columns={11} rowKey={person => person.id}>
+                {(person, index) => (
                   <tr key={person.id}>
                     <td>{index + 1}</td>
                     <td>
@@ -173,8 +175,8 @@ export function RecoveryLeaderboard({
                       </details>
                     </td>
                   </tr>
-                ))}
-              </tbody>
+                )}
+              </VirtualTableBody>
             </table>
           </div>
           {!leaders.length && <p>No recovery executives found.</p>}

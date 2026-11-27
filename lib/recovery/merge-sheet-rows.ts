@@ -3,6 +3,15 @@ function sameRow<T extends SheetRow>(a: T, b: T) {
   const keys = Object.keys(a) as (keyof T)[];
   return keys.length === Object.keys(b).length && keys.every(key => a[key] === b[key]);
 }
+// Preserve the server's ordering (including paid-date ordering on Recovered Leads).
+export function reconcileSheetRows<T extends SheetRow>(current: T[], incoming: T[]): T[] {
+  const prior = new Map(current.map(row => [row.id, row]));
+  const next = incoming.map(row => {
+    const old = prior.get(row.id);
+    return old && sameRow(old, row) ? old : row;
+  });
+  return next.length === current.length && next.every((row, index) => row === current[index]) ? current : next;
+}
 export function mergeSheetRows<T extends SheetRow>(current: T[], incoming: T[], removedIds: string[] = [], reset = false): T[] {
   if (!reset && !incoming.length && !removedIds.length) return current;
   const prior = new Map(current.map(row => [row.id, row]));
