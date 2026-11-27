@@ -96,3 +96,15 @@ Apply `prisma/migrations/202611270006_recovery_webhooks/migration.sql` for the w
 A confirmed payment updates `paymentStatus` to `paid` and records `paidAt`, preserving an existing paid timestamp. It also records the provider link's paid state. It **never changes `amountPaid` or `remainingAmount`**. Admin/executive sheets and Recovered Leads quietly refresh every 10 seconds while visible, and refresh when the tab regains focus. Existing active text editors are not interrupted. An open statistics panel refreshes every 15 seconds.
 
 Verification: `node --test tests/auth.test.mjs tests/payment-links.test.mjs tests/payment-webhook.test.mjs`. Tests use signed mock webhook bodies, not real customer payments.
+
+### Executive discount / instalment link changes and CA
+
+Selecting **CA** sets the allocated lead's payment status to Paid in the same server-side update and records the payment date on transition, without changing either amount column. It does not trigger a Razorpay charge.
+
+For unpaid allocated students with **Discount** or **Pay in instalments**, the Remaining amount cell offers an edit action. Enter the amount payable now and Save. The server locks the student row, verifies the allocation/status, confirms the old link is unpaid, cancels it, and creates a new link for the entered amount. The sheet changes its remaining amount and payment link together only after successful replacement. Amount paid stays unchanged. A paid/partially-paid link cannot be replaced. If cancellation succeeded but creation failed, the error explicitly says the old link is cancelled and asks the executive to retry the same amount. Persistent references reconcile uncertain requests before creating another link.
+
+Apply `prisma/migrations/202611270007_recovery_link_revisions/migration.sql`. Revision records preserve old and new provider references, URLs, original amounts, actor, and workflow state. Webhooks continue to recognize historical link references. Existing bulk-generation workers should be restarted to pick up the replacement lock checks.
+
+Additional tests: `node --test tests/payment-revision.test.mjs` (mocked Razorpay; no live cancellations or link generation).
+
+If a replacement check finds that Razorpay already fully captured the old live link, it reconciles the student to Paid and closes pending replacements instead of trying to cancel a paid link. Both amount fields and the existing payment URL remain unchanged. An already-paid DB row also returns its current values to close a stale editor. Pending amounts can be changed while the old link is confirmed still created/untouched; uncertain creations retain their original reference and expose the exact amount to resume.

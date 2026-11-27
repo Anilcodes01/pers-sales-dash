@@ -15,5 +15,9 @@ export async function paymentJobView(id: string, accountKey: string) {
     client.recoveryPaymentItem.findMany({ where: { jobId: id, status: { in: ["generated", "reused"] } }, select: { leadId: true, url: true } }),
     client.recoveryPaymentItem.findMany({ where: { jobId: id, status: { in: ["failed", "skipped"] } }, select: { id: true, studentName: true, status: true, reason: true }, orderBy: { id: "asc" }, take: 30 }),
   ]);
-  return { ...job, mode: accountKey.startsWith("rzp_live_") ? "live" : "test", counts: Object.fromEntries(counts.map(group => [group.status, group._count])), total: counts.reduce((total, group) => total + group._count, 0), updates, issues };
+  // A completed generation item may point to a link superseded by an executive.
+  // Publish the current sheet URL, keeping historical job outcomes untouched.
+  const currentRows = updates.length ? await client.recoveryLead.findMany({ where: { id: { in: updates.map(update => update.leadId) } }, select: { id: true, paymentLinks: true } }) : [];
+  const currentLinks = currentRows.map(row => ({ leadId: row.id, url: row.paymentLinks }));
+  return { ...job, mode: accountKey.startsWith("rzp_live_") ? "live" : "test", counts: Object.fromEntries(counts.map(group => [group.status, group._count])), total: counts.reduce((total, group) => total + group._count, 0), updates: currentLinks, issues };
 }

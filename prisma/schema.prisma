@@ -64,6 +64,8 @@ model SalesRecord {
 }
 
 model RecoveryLead {
+  linkChangeToken String? @map("link_change_token") @db.Uuid
+  linkChangeUntil DateTime? @map("link_change_until") @db.Timestamptz(6)
   paidAt DateTime? @map("paid_at") @db.Timestamptz(6)
   comments String @default("") @db.Text
   assignedTo String? @map("assigned_to") @db.Uuid
@@ -165,4 +167,29 @@ model RecoveryWebhookEvent {
   eventType String @map("event_type") @db.Text
   receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
   @@map("recovery_webhook_events")
+}
+
+model RecoveryPaymentRevision {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @map("lead_id") @db.Uuid
+  accountKey String @map("account_key") @db.Text
+  executiveId String @map("executive_id") @db.Uuid
+  oldRemaining String @map("old_remaining") @db.Text
+  oldUrl String @map("old_url") @db.Text
+  oldReference String? @unique @map("old_reference") @db.VarChar(40)
+  oldProviderId String? @map("old_provider_id") @db.Text
+  oldAmountPaise BigInt? @map("old_amount_paise")
+  oldStatus String @default("") @map("old_status") @db.Text
+  desiredAmount String @map("desired_amount") @db.Text
+  amountPaise BigInt @map("amount_paise")
+  newReference String @unique @map("new_reference") @db.VarChar(40)
+  newProviderId String? @map("new_provider_id") @db.Text
+  newUrl String @default("") @map("new_url") @db.Text
+  newStatus String @default("") @map("new_status") @db.Text
+  status String @default("pending") @db.Text
+  error String @default("") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@index([leadId, accountKey])
+  @@map("recovery_payment_revisions")
 }

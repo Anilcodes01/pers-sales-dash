@@ -764,3 +764,24 @@ test('public Razorpay webhook bounds request size before verification and databa
   }, onDb: () => assert.fail('Oversized webhook accessed the database') });
   assert.equal((await route.POST(request({ data: 'x'.repeat(270000) }))).status, 413);
 });
+
+test('setting CA atomically marks the allocated student paid, overriding a contradictory unpaid field', async () => {
+  let update;
+  const route = load(statusFile, { user: recoveryExecutive, db: { recoveryLead: { updateMany: async args => { update = args; return { count: 1 }; } } } });
+  const response = await route.PATCH(request({ leadStatus: 'ca', paymentStatus: 'unpaid' }), statusContext);
+  assert.equal(response.status, 200);
+  assert.equal(update.where.assignedTo, recoveryExecutive.id);
+  assert.equal(update.data.leadStatus, 'ca'); assert.equal(update.data.paymentStatus, 'paid');
+  assert.ok(update.data.paidAt); assert.equal(response.body.paymentStatus, 'paid');
+  assert.equal(update.data.amountPaid, undefined); assert.equal(update.data.remainingAmount, undefined);
+});
+
+test('executive amount/link replacement is unavailable to other roles', async () => {
+  for (const user of [null, member, mainAdmin, recoveryAdmin]) {
+    const route = load('app/api/recovery-executive/leads/[id]/payment-link/route.ts', { user, modules: {
+      ...paymentModules,
+      '@/lib/recovery/replace-payment-link.mjs': { replacePaymentLink: () => assert.fail('Unauthorized replacement'), LinkChangeError: class extends Error {} },
+    }, onDb: () => assert.fail('Unauthorized database access') });
+    assert.equal((await route.PATCH(request({ remainingAmount: '1500' }), statusContext)).status, user ? 403 : 401);
+  }
+});

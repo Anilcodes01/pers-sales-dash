@@ -32,6 +32,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       if (typeof body.comments !== "string" || body.comments.length > 5000) throw new AccessError(400, "Comments must be at most 5,000 characters.");
       data.comments = body.comments;
     }
+    if (data.leadStatus === "ca") data.paymentStatus = "paid";
     const client = db();
     const where = { id, assignedTo: user.id };
     const dbStarted = performance.now();

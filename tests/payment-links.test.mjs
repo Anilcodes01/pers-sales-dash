@@ -33,6 +33,11 @@ function fixture(overrides = {}) {
       findUnique: async () => state.lead ? { ...state.lead } : null,
       updateMany: async ({ where, data }) => {
         assert.equal(where.id, lead.id);
+        if ('linkChangeUntil' in data) {
+          if (where.linkChangeToken && state.lead.linkChangeToken !== where.linkChangeToken) return { count: 0 };
+          if (where.OR && state.lead.linkChangeUntil && state.lead.linkChangeUntil > new Date()) return { count: 0 };
+          Object.assign(state.lead, data); return { count: 1 };
+        }
         if (state.lead.remainingAmount !== where.remainingAmount || state.lead.paymentLinks !== where.paymentLinks || state.lead.paymentStatus.toLowerCase() === 'paid') return { count: 0 };
         Object.assign(state.lead, data); state.writes++; return { count: 1 };
       },

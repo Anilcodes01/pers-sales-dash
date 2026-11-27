@@ -2471,3 +2471,9 @@ body.sheet-column-resizing, body.sheet-column-resizing * { cursor: col-resize !i
 .payment-link-progress li { margin-block: 4px; }
 .sheet-payment-link { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
 .sheet-payment-link svg { display: inline; margin-left: 5px; }
+
+.app-main table td:has(.remaining-amount-editor) { height: auto; max-height: none; overflow: visible; white-space: normal; }
+.remaining-amount-editor { display: flex; flex-wrap: wrap; gap: 5px; min-width: 0; }
+.remaining-amount-editor input { width: 100%; min-width: 0; padding: 5px; border: 1px solid var(--border); background: var(--input); color: var(--foreground); }
+.remaining-amount-editor [data-slot="button"] { height: 28px; padding: 3px 6px; font-size: 12px; }
+.remaining-amount-editor > span { flex-basis: 100%; font-size: 11px; white-space: normal; overflow-wrap: anywhere; }

@@ -15,6 +15,7 @@ function fixture() {
       create: async ({ data }) => { if (state.events.has(data.eventId)) throw Object.assign(new Error('Duplicate'), { code: 'P2002' }); state.events.set(data.eventId, data); },
       findUnique: async ({ where }) => state.events.get(where.eventId),
     },
+    recoveryPaymentRevision: { findUnique: async () => null },
     recoveryPaymentLink: {
       findUnique: async () => state.tracked,
       update: async ({ data }) => { Object.assign(state.tracked, data); },
@@ -84,4 +85,18 @@ test('partial and unrelated events do not mark paid', async () => {
   const { db, state } = fixture(); const value = event(); value.event = 'payment_link.partially_paid';
   assert.equal((await handlePaymentWebhook(db, raw(value), 'evt_partial')).ignored, true);
   assert.equal(state.writes, 0);
+});
+
+test('paid events for archived replaced links still map to the correct student', async () => {
+  const { db, state } = fixture(); state.tracked = null;
+  let historyPaid = false;
+  db.recoveryPaymentRevision = {
+    findUnique: async ({ where }) => where.oldReference === 'reference' ? {
+      id: 'revision', leadId: 'actual-student', accountKey: 'rzp_live_example', oldProviderId: 'plink_example', oldAmountPaise: 500n,
+    } : null,
+    update: async ({ data }) => { assert.equal(data.oldStatus, 'paid'); historyPaid = true; },
+  };
+  await handlePaymentWebhook(db, raw(event()), 'evt_history');
+  assert.equal(historyPaid, true); assert.equal(state.lead.paymentStatus, 'paid');
+  assert.equal(state.lead.remainingAmount, '5'); assert.equal(state.lead.amountPaid, '1500');
 });
