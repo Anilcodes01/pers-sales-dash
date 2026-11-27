@@ -146,7 +146,7 @@ export function RecoveryLeaderboard({
                   ))}
                 </tr>
               </thead>
-              <VirtualTableBody rows={leaders} columns={11} rowKey={person => person.id}>
+              <VirtualTableBody fillViewport={false} rows={leaders} columns={11} rowKey={person => person.id}>
                 {(person, index) => (
                   <tr key={person.id}>
                     <td>{index + 1}</td>

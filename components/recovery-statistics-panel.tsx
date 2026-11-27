@@ -58,7 +58,7 @@ export function RecoveryStatisticsPanel({ individual = false, month, months = []
   }, []);
   useEffect(() => {
     if (!open) return;
-    const timer = setInterval(() => { if (!document.hidden) { cache.current.clear(); setRevision(value => value + 1); } }, 15000);
+    const timer = setInterval(() => { if (!document.hidden) { cache.current.clear(); setRevision(value => value + 1); } }, 30000);
     return () => clearInterval(timer);
   }, [open]);
   if (!state) return null;

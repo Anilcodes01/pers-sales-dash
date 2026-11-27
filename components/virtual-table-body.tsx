@@ -6,10 +6,10 @@ type RenderRow<T> = (row: T, index: number) => ReactElement<ComponentProps<"tr">
 const MeasuredRow = memo(function MeasuredRow<T>({ row, index, render, measure }: { row: T; index: number; render: RenderRow<T>; measure: (node: HTMLTableRowElement | null) => void }) {
   return cloneElement(render(row, index), { ref: measure, "data-index": index, "data-student-index": index, "aria-rowindex": index + 2 } as ComponentProps<"tr">);
 });
-export function VirtualTableBody<T>({ rows, columns, rowKey, children }: { rows: T[]; columns: number; rowKey: (row: T, index: number) => string | number; children: RenderRow<T> }) {
+export function VirtualTableBody<T>({ rows, columns, rowKey, children, fillViewport = true }: { rows: T[]; columns: number; rowKey: (row: T, index: number) => string | number; children: RenderRow<T>; fillViewport?: boolean }) {
   "use no memo";
   const body = useRef<HTMLTableSectionElement>(null);
-  useTableViewport(body);
+  useTableViewport(body, fillViewport);
   const [pinned, setPinned] = useState<string | number | null>(null);
   const pinIndex = pinned === null ? -1 : rows.findIndex((row, index) => rowKey(row, index) === pinned);
   const virtualizer = useVirtualizer<HTMLElement, HTMLTableRowElement>({
