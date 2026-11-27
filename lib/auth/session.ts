@@ -9,9 +9,13 @@ export async function currentUser(readOnly = false) {
   await connection();
   if (!authConfigured()) return null;
   const client = await createAuthClient(readOnly);
-  const { data, error } = await client.auth.getUser();
+  // These checks are independent; do not serialize their network latency.
+  // Keep the remote user check and credential-version comparison for revocation.
+  const [{ data, error }, { data: claims, error: claimError }] = await Promise.all([
+    client.auth.getUser(),
+    client.auth.getClaims(),
+  ]);
   if (error || !data.user) return null;
-  const { data: claims, error: claimError } = await client.auth.getClaims();
   if (claimError || !claims?.claims) return null;
   const tokenMetadata = claims.claims.app_metadata as Record<string, unknown> | undefined;
   if (data.user.app_metadata.credentials_version !== tokenMetadata?.credentials_version) return null;

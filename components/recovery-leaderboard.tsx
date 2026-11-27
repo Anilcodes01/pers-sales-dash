@@ -5,12 +5,6 @@ import {
   type RecoverySummaryRow,
 } from "@/lib/recovery/summary";
 import { RecoveryStatusBadge } from "./recovery-status-badge";
-const money = (paise: number) =>
-  new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 2,
-  }).format(paise / 100);
 const percentage = (value: number) => `${value.toFixed(1)}%`;
 function RecoveryProgress({ value, label }: { value: number; label: string }) {
   return (
@@ -38,7 +32,7 @@ function StatusCounts({ statuses }: { statuses: Record<string, number> }) {
     </div>
   );
 }
-export type RecoveryStatisticsData = { summary: ReturnType<typeof summarizeRecovery>; leaders: ReturnType<typeof recoveryLeaderboard>; daily: ReturnType<typeof dailyRecovery>; unassigned: ReturnType<typeof summarizeRecovery>; months: string[] };
+export type RecoveryStatisticsData = { summary: ReturnType<typeof summarizeRecovery>; leaders: ReturnType<typeof recoveryLeaderboard>; daily: ReturnType<typeof dailyRecovery>; unassigned: ReturnType<typeof summarizeRecovery>; months: string[]; period?: { startedAt: string; endedAt: string | null } | null };
 export function RecoveryLeaderboard({
   rows = [],
   executives = [],
@@ -53,7 +47,6 @@ export function RecoveryLeaderboard({
   const summary = statistics?.summary ?? summarizeRecovery(rows);
   const leaders = statistics?.leaders ?? (individual ? [] : recoveryLeaderboard(rows, executives));
   const daily = statistics?.daily ?? dailyRecovery(rows);
-  const dailyMax = Math.max(1, ...daily.days.map((day) => day.recoveredPaise));
   const unassigned = statistics?.unassigned ?? summarizeRecovery(rows.filter((row) => !row.assignedTo));
   return (
     <section
@@ -64,9 +57,6 @@ export function RecoveryLeaderboard({
     >
       <div className="recovery-stat-cards">
         {[
-          ...(!individual
-            ? [["Overall recovered", money(summary.recoveredPaise)]]
-            : []),
           ["Recovery %", percentage(summary.recoveryPercentage)],
           ["Students", summary.total],
           ["Paid", summary.paid],
@@ -91,6 +81,8 @@ export function RecoveryLeaderboard({
      
       {!individual && (
         <section className="daily-recovery">
+          <h2>Cumulative recovery</h2>
+          {statistics?.period && <p className="recovery-metric-note">{new Date(statistics.period.startedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })} – {statistics.period.endedAt ? new Date(statistics.period.endedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : "Today (active)"} · Paid during this period ÷ students in the selected batch</p>}
     
          
           {daily.undated > 0 && (
@@ -99,38 +91,31 @@ export function RecoveryLeaderboard({
               are excluded from the daily chart.
             </p>
           )}
+          {daily.days.length > 0 && <div className="recovery-pie-legend"><span><i className="recovery-pie-previous"/>Recovered before this day</span><span><i className="recovery-pie-today"/>Recovered this day</span><span><i className="recovery-pie-remaining"/>Remaining in selected batch</span></div>}
           {!daily.days.length ? (
-            <p>No dated recoveries recorded for this selection yet.</p>
+            <p>No recovery period recorded yet. Use Start recovery in the navbar to begin.</p>
           ) : (
-            <div className="daily-recovery-rows">
-              {daily.days.map((day) => (
-                <div className="daily-recovery-row" key={day.date}>
-                  <strong>{day.date}</strong>
-                  <div
-                    className="daily-amount-bar"
-                    title={`${money(day.recoveredPaise)} recovered`}
-                  >
-                    <span
-                      style={{
-                        width: `${(day.recoveredPaise / dailyMax) * 100}%`,
-                      }}
-                    />
-                  </div>
-                  <span>{money(day.recoveredPaise)}</span>
-                  <span>
-                    {day.paid} paid · {percentage(day.recoveryPercentage)}
-                  </span>
-                  <RecoveryProgress
-                    value={day.recoveryPercentage}
-                    label={`${day.date} recovery rate`}
-                  />
-                  {day.excludedAmounts > 0 && (
-                    <small>
-                      {day.excludedAmounts} unreadable amounts excluded
-                    </small>
-                  )}
-                </div>
-              ))}
+            <div className="daily-recovery-charts">
+              {daily.days.map((day) => {
+                const today = summary.total ? day.paid / summary.total * 100 : 0;
+                const previous = Math.max(0, day.recoveryPercentage - today);
+                const dateLabel = new Date(`${day.date}T12:00:00+05:30`).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
+                return <figure className="daily-recovery-chart" key={day.date}>
+                  <figcaption>{dateLabel}</figcaption>
+                  <svg viewBox="0 0 120 120" role="img" aria-label={`${dateLabel}: ${percentage(day.recoveryPercentage)} cumulative recovery, ${day.paid} paid today, ${day.cumulativePaid} paid during the period out of ${summary.total} students`}>
+                    <title>{dateLabel}: {day.cumulativePaid} of {summary.total} recovered</title>
+                    <g transform="rotate(-90 60 60)" fill="none" strokeWidth="12">
+                      <circle cx="60" cy="60" r="46" className="recovery-pie-remaining"/>
+                      <circle cx="60" cy="60" r="46" pathLength="100" className="recovery-pie-previous" strokeDasharray={`${previous} ${100 - previous}`}/>
+                      <circle cx="60" cy="60" r="46" pathLength="100" className="recovery-pie-today" strokeDasharray={`${today} ${100 - today}`} strokeDashoffset={-previous}/>
+                    </g>
+                    <text x="60" y="58" textAnchor="middle" className="recovery-pie-value">{percentage(day.recoveryPercentage)}</text>
+                    <text x="60" y="75" textAnchor="middle" className="recovery-pie-label">cumulative</text>
+                  </svg>
+                  <strong>{day.paid} paid today</strong>
+                  <span>{day.cumulativePaid} / {summary.total} students recovered</span>
+                </figure>;
+              })}
             </div>
           )}
         </section>
@@ -145,7 +130,6 @@ export function RecoveryLeaderboard({
                   {[
                     "Rank",
                     "Executive",
-                    "Recovered",
                     "Recovery %",
                     "Students",
                     "Paid",
@@ -167,14 +151,6 @@ export function RecoveryLeaderboard({
                     <td>
                       <strong>{person.name}</strong>
                       <small>{person.email}</small>
-                    </td>
-                    <td>
-                      {money(person.recoveredPaise)}
-                      {person.excludedAmounts > 0 && (
-                        <small>
-                          {person.excludedAmounts} unreadable amounts
-                        </small>
-                      )}
                     </td>
                     <td>
                       {percentage(person.recoveryPercentage)}
@@ -205,8 +181,7 @@ export function RecoveryLeaderboard({
           {unassigned.total > 0 && (
             <details className="recovery-status-summary">
               <summary>
-                Unassigned students ({unassigned.total}) ·{" "}
-                {money(unassigned.recoveredPaise)} recovered
+                Unassigned students ({unassigned.total})
               </summary>
               <StatusCounts statuses={unassigned.statuses} />
             </details>

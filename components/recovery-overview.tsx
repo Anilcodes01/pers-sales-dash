@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 import { AllocationSheet, type AllocationStudent } from "./allocation-sheet";
-import { RecoveryStatisticsPanel } from "./recovery-statistics-panel";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { RecoveryMonthFilter } from "./recovery-month-filter";
@@ -31,5 +30,5 @@ export function RecoveryOverview() {
     }
     void load(); return () => controller.abort();
   }, [month, revision]);
-  return <Card className="csv-records-card recovery-sheet-card recovery-overview-card"><RecoveryStatisticsPanel rows={records} executives={executives} loading={loading} failed={failed} scope={month === CURRENT_MONTH ? currentMonthName : month === null ? "All months" : month || "Blank month"} month={month} months={months} currentMonthName={currentMonthName} onMonthChange={setMonth}/><div className="recovery-overview-toolbar"><h2>Recovery students{!loading && !failed ? ` (${records.length})` : ""}</h2><label className="recovery-month-filter"><span className="sr-only">Month</span><RecoveryMonthFilter month={month} months={months} currentMonthName={currentMonthName} onChange={setMonth} disabled={loading}/></label><Button variant="outline" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw/> Refresh</Button></div>{loading ? <p>Loading students…</p> : failed ? <p>Unable to load students. Use Refresh to retry.</p> : <>{!records.length ? <p>No recovery students found.</p> : <AllocationSheet rows={records} executives={executives} selected={[]} onSelect={() => {}} disabled executive={false} readOnly/>}</>}</Card>;
+  return <Card className="csv-records-card recovery-sheet-card recovery-overview-card"><div className="recovery-overview-toolbar"><h2>Recovery students{!loading && !failed ? ` (${records.length})` : ""}</h2><label className="recovery-month-filter"><span className="sr-only">Month</span><RecoveryMonthFilter month={month} months={months} currentMonthName={currentMonthName} onChange={setMonth} disabled={loading}/></label><Button variant="outline" disabled={loading} onClick={() => setRevision(value => value + 1)}><RefreshCw/> Refresh</Button></div>{loading ? <p>Loading students…</p> : failed ? <p>Unable to load students. Use Refresh to retry.</p> : <>{!records.length ? <p>No recovery students found.</p> : <AllocationSheet rows={records} executives={executives} selected={[]} onSelect={() => {}} disabled executive={false} readOnly/>}</>}</Card>;
 }

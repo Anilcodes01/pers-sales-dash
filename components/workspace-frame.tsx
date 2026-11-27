@@ -11,11 +11,13 @@ import {
   UsersRound,
   ChartNoAxesCombined,
   Upload,
+  CircleCheck,
   LogOut,
   ChevronDown,
   Loader2,
 } from "lucide-react";
-import { RecoveryStatisticsButton } from "./recovery-statistics-panel";
+import { RecoveryPeriodControls } from "./recovery-period-controls";
+import { RecoveryStatisticsButton, RecoveryStatisticsPanel } from "./recovery-statistics-panel";
 import { Brand } from "./brand";
 import { ThemeToggle } from "./theme-toggle";
 import { Button } from "./ui/button";
@@ -84,8 +86,8 @@ export function WorkspaceFrame({
         <Brand />
         <nav aria-label="Workspace navigation">
           <Link
-            className={`sidebar-link${(!isUsers && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation") ? " active" : ""}`}
-            aria-current={(!isUsers && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation") ? "page" : undefined}
+            className={`sidebar-link${(!isUsers && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation" && pathname !== "/recovered-leads" && pathname !== "/my-recovered-leads") ? " active" : ""}`}
+            aria-current={(!isUsers && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation" && pathname !== "/recovered-leads" && pathname !== "/my-recovered-leads") ? "page" : undefined}
             title="Overview" aria-label="Overview" href={dashboardPath(profile.role)}
           >
             <LayoutDashboard size={17} />
@@ -104,6 +106,7 @@ export function WorkspaceFrame({
           {profile.role === "main_admin" && <Link className={`sidebar-link${pathname.startsWith("/teams") ? " active" : ""}`} aria-current={pathname.startsWith("/teams") ? "page" : undefined} title="Teams" aria-label="Teams" href="/teams"><UsersRound size={17}/><span className="nav-label">Teams</span></Link>}
           {profile.role === "recovery_admin" && <Link title="Allocation" aria-label="Allocation" href="/allocation" className={`sidebar-link${pathname === "/allocation" ? " active" : ""}`} aria-current={pathname === "/allocation" ? "page" : undefined}><UsersRound size={17}/><span className="nav-label">Allocation</span></Link>}
           {importsPath && <Link title={profile.role === "recovery_admin" ? "Recovery leads" : "My sales"} aria-label={profile.role === "recovery_admin" ? "Recovery leads" : "My sales"} href={importsPath} className={`sidebar-link${isImports ? " active" : ""}`} aria-current={isImports ? "page" : undefined}><Upload size={17}/><span className="nav-label">{profile.role === "recovery_admin" ? "Recovery leads" : "My sales"}</span></Link>}
+          {(profile.role === "recovery_admin" || profile.role === "recovery_executive") && <Link title="Recovered leads" aria-label="Recovered leads" href={profile.role === "recovery_admin" ? "/recovered-leads" : "/my-recovered-leads"} className={`sidebar-link${["/recovered-leads", "/my-recovered-leads"].includes(pathname) ? " active" : ""}`} aria-current={["/recovered-leads", "/my-recovered-leads"].includes(pathname) ? "page" : undefined}><CircleCheck size={17}/><span className="nav-label">Recovered leads</span></Link>}
           {profile.role === "main_admin" && <Link title="Sales" aria-label="Sales" href="/sales" className={`sidebar-link${pathname === "/sales" ? " active" : ""}`} aria-current={pathname === "/sales" ? "page" : undefined}><ChartNoAxesCombined size={17}/><span className="nav-label">Sales</span></Link>}
         </nav>
       </aside>
@@ -111,7 +114,8 @@ export function WorkspaceFrame({
         <header className="dashboard-header">
           <Button variant="ghost" className="sidebar-toggle" aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!sidebarCollapsed} aria-controls="workspace-sidebar" onClick={() => setSidebarCollapsed(value => !value)}>{sidebarCollapsed ? <PanelLeftOpen/> : <PanelLeftClose/>}</Button>
           <div className="navbar-actions">
-            <RecoveryStatisticsButton/>
+            {profile.role === "recovery_admin" && <RecoveryPeriodControls/>}
+            <RecoveryStatisticsButton enabled={profile.role === "recovery_admin" || profile.role === "recovery_executive"}/>
             <ThemeToggle key={profile.id} userId={profile.id} initialColor={profile.themeColor}/>
             <span className="navbar-divider" />
             <DropdownMenu>
@@ -153,6 +157,7 @@ export function WorkspaceFrame({
             </DropdownMenu>
           </div>
         </header>
+        {(profile.role === "recovery_admin" || profile.role === "recovery_executive") && <RecoveryStatisticsPanel individual={profile.role === "recovery_executive"}/>}
         <div className="workspace-scroll">
         
         {children}

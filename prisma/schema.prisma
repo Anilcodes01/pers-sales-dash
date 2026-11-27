@@ -97,3 +97,12 @@ model RecoveryLead {
   @@index([uploadId])
   @@map("recovery_leads")
 }
+
+model RecoveryPeriod {
+  id String @id @default(uuid()) @db.Uuid
+  startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
+  endedAt DateTime? @map("ended_at") @db.Timestamptz(6)
+  startedBy String @map("started_by") @db.Uuid
+  endedBy String? @map("ended_by") @db.Uuid
+  @@map("recovery_periods")
+}

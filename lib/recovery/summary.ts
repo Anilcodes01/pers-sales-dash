@@ -36,14 +36,30 @@ export function recoveryLeaderboard(rows: RecoverySummaryRow[], executives: { id
   return [...people.values()].map(person => ({ ...person, ...summarizeRecovery(groups.get(person.id) || []) })).sort((a, b) => b.recoveredPaise - a.recoveredPaise || b.paid - a.paid || a.name.localeCompare(b.name));
 }
 
-export function dailyRecovery(rows: RecoverySummaryRow[]) {
+export type RecoveryPeriodRange = { startedAt: string | Date; endedAt: string | Date | null };
+export function recoveryDate(value: Date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
+}
+export function dailyRecovery(rows: RecoverySummaryRow[], period?: RecoveryPeriodRange | null, now = new Date()) {
   const days = new Map<string, { date: string; paid: number; recoveredPaise: number; excludedAmounts: number; recoveryPercentage: number }>();
   let undated = 0;
+  const start = period ? new Date(period.startedAt) : null;
+  const end = period ? new Date(period.endedAt ?? now) : null;
+  if (start && end) {
+    const last = recoveryDate(end);
+    for (let date = recoveryDate(start); date <= last;) {
+      days.set(date, { date, paid: 0, recoveredPaise: 0, excludedAmounts: 0, recoveryPercentage: 0 });
+      const next = new Date(`${date}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      date = next.toISOString().slice(0, 10);
+    }
+  }
   for (const row of rows) {
     if (row.paymentStatus.trim().toLowerCase() !== "paid") continue;
     const timestamp = row.paidAt ? new Date(row.paidAt) : null;
     if (!timestamp || Number.isNaN(timestamp.getTime())) { undated++; continue; }
-    const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(timestamp);
+    if (start && end && (timestamp < start || timestamp > end)) continue;
+    const date = recoveryDate(timestamp);
     const day = days.get(date) || { date, paid: 0, recoveredPaise: 0, excludedAmounts: 0, recoveryPercentage: 0 };
     day.paid++;
     const amount = amountInPaise(row.amountMentioned);
@@ -51,5 +67,12 @@ export function dailyRecovery(rows: RecoverySummaryRow[]) {
     day.recoveryPercentage = rows.length ? day.paid / rows.length * 100 : 0;
     days.set(date, day);
   }
-  return { days: [...days.values()].sort((a, b) => a.date.localeCompare(b.date)), undated };
+  let cumulativePaid = 0;
+  let cumulativePaise = 0;
+  const ordered = [...days.values()].sort((a, b) => a.date.localeCompare(b.date)).map(day => {
+    cumulativePaid += day.paid;
+    cumulativePaise += day.recoveredPaise;
+    return { ...day, cumulativePaid, cumulativePaise, recoveryPercentage: rows.length ? cumulativePaid / rows.length * 100 : 0 };
+  });
+  return { days: ordered, undated };
 }

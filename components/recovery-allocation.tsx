@@ -8,7 +8,6 @@ import { CURRENT_MONTH, currentRecoveryMonth } from "@/lib/recovery/month";
 import { numberedRowRange, selectedRowBounds } from "@/lib/recovery/selection";
 import { Input } from "./ui/input";
 import { Button } from "./ui/button";
-import { RecoveryStatisticsPanel } from "./recovery-statistics-panel";
 import { Card } from "./ui/card";
 import {
   Select,
@@ -158,18 +157,6 @@ export function RecoveryAllocation({
     : records;
   return (
     <Card className="csv-records-card recovery-sheet-card">
-      {executive && (
-        <RecoveryStatisticsPanel
-          rows={visibleRecords}
-          individual
-          loading={loading}
-          failed={failed}
-          month={executiveMonth}
-          months={executiveMonths}
-          currentMonthName={resolvedCurrentMonth}
-          onMonthChange={setExecutiveMonth}
-        />
-      )}
       <div className="panel-heading">
         <h2>{executive ? "Students to call" : "Student allocation"}</h2>
         <div className="recovery-sheet-actions">

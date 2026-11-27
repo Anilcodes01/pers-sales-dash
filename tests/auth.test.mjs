@@ -15,13 +15,13 @@ function load(file, options = {}) {
     if (cache.has(filename)) return cache.get(filename);
     const exports = {}; cache.set(filename, exports);
     const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-    vm.runInNewContext(code, { exports, URL, Buffer, Response, File, TextDecoder, process: { env: options.env || {} }, require(name) {
+    vm.runInNewContext(code, { exports, URL, performance, Buffer, Response, File, TextDecoder, process: { env: options.env || {} }, require(name) {
       if (name === 'server-only') return {};
       if (name === '@/lib/db') return { db: () => { options.onDb?.(); return options.db; } };
       if (name === 'next/navigation') return { redirect: (destination) => { throw new Error(`REDIRECT:${destination}`); } };
       if (name === 'csv-parse/sync') return { parse };
       if (name === 'node:crypto') return { createHash, randomUUID: () => 'new-version' };
-      if (name === 'next/server') return { connection: async () => { options.onConnection?.(); }, NextResponse: { json: (body, extra) => ({ body, ...extra }) } };
+      if (name === 'next/server') return { connection: async () => { options.onConnection?.(); }, NextResponse: { json: (body, extra) => ({ body, ...extra, headers: { ...extra?.headers, set(name, value) { this[name] = value; } } }) } };
       if (name === '@/lib/supabase/server') return { createAuthClient: async () => options.client };
       if (name === '@/lib/supabase/config') return { authConfigured: () => options.configured !== false };
       if (name === '@/lib/supabase/admin') return { adminConfigured: () => options.adminConfigured !== false, createAdminClient: () => {
@@ -600,8 +600,11 @@ test('range allocation skips assigned rows atomically unless reassignment is ena
 test('default recovery month follows India time across month boundaries', () => {
   const { currentRecoveryMonth } = load('lib/recovery/month.ts');
   assert.equal(currentRecoveryMonth(new Date('2026-10-31T20:00:00Z')), 'November');
-  assert.equal(currentRecoveryMonth(new Date('2026-11-30T18:00:00Z')), 'November');
+  assert.equal(currentRecoveryMonth(new Date('2026-11-30T18:00:00Z')), 'December');
   assert.equal(currentRecoveryMonth(new Date('2026-11-30T19:00:00Z')), 'December');
+  assert.equal(currentRecoveryMonth(new Date('2026-11-24T18:29:59Z')), 'November');
+  assert.equal(currentRecoveryMonth(new Date('2026-11-24T18:30:00Z')), 'December');
+  assert.equal(currentRecoveryMonth(new Date('2026-12-24T18:30:00Z')), 'January');
 });
 test('daily recovery uses recorded paid dates in India time and excludes unknown historical dates', () => {
   const { dailyRecovery } = load('lib/recovery/summary.ts');
@@ -645,4 +648,15 @@ test('sheet selection maps to inclusive visible row bounds for the single alloca
   assert.equal(bounds.first, 2); assert.equal(bounds.last, 4);
   assert.deepEqual(JSON.parse(JSON.stringify(numberedRowRange(ids, String(bounds.first), String(bounds.last)))), ['b', 'c', 'd']);
   assert.equal(selectedRowBounds(ids, ['unknown']), null);
+});
+
+test('user and token verification start concurrently while retaining credential checks', async () => {
+  let release;
+  let userStarted = false;
+  const gate = new Promise(resolve => { release = resolve; });
+  const client = { auth: {
+    getUser: async () => { userStarted = true; await gate; return { data: { user: member }, error: null }; },
+    getClaims: async () => { assert.equal(userStarted, true); release(); return { data: { claims: { app_metadata: {} } }, error: null }; },
+  } };
+  assert.equal((await load('lib/auth/session.ts', { client, realSession: true }).currentUser()).id, member.id);
 });
