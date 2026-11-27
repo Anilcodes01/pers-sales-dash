@@ -8,15 +8,17 @@ import { Button } from "./ui/button";
 import { CURRENT_MONTH, currentRecoveryMonth } from "@/lib/recovery/month";
 import { RecoveryLeaderboard, type RecoveryStatisticsData } from "./recovery-leaderboard";
 import type { RecoverySummaryRow } from "@/lib/recovery/summary";
+import { DropdownMenuItem } from "./ui/dropdown-menu";
 const StatisticsContext = createContext<{ openPath: string | null; setOpenPath: (path: string | null) => void } | null>(null);
 export function RecoveryStatisticsProvider({ children }: { children: ReactNode }) {
   const [openPath, setOpenPath] = useState<string | null>(null);
   return <StatisticsContext.Provider value={{ openPath, setOpenPath }}>{children}</StatisticsContext.Provider>;
 }
-export function RecoveryStatisticsButton({ enabled = false }: { enabled?: boolean }) {
+export function RecoveryStatisticsButton({ enabled = false, menuItem = false }: { enabled?: boolean; menuItem?: boolean }) {
   const state = useContext(StatisticsContext);
   const pathname = usePathname();
   if (!state || !enabled) return null;
+  if (menuItem) return <DropdownMenuItem onSelect={() => state.setOpenPath(pathname)}><ChartNoAxesCombined size={17}/>Statistics</DropdownMenuItem>;
   return <Button variant="ghost" className="statistics-navbar-button" aria-haspopup="dialog" aria-expanded={state.openPath === pathname} onClick={() => state.setOpenPath(state.openPath === pathname ? null : pathname)}><ChartNoAxesCombined size={17}/>Statistics</Button>;
 }
 export function RecoveryStatisticsPanel({ individual = false, month, months = [], currentMonthName }: {

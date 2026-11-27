@@ -1,9 +1,12 @@
 "use client";
+import { Dialog } from "radix-ui";
 import { toast } from "sonner";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
+  Menu,
+  X,
   PanelLeftClose,
   PanelLeftOpen,
   LayoutDashboard,
@@ -58,6 +61,16 @@ export function WorkspaceFrame({
     contentRef.current?.scrollTo({ top: 0, left: 0 });
   }, [pathname]);
   const [busy, setBusy] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [appearanceColor, setAppearanceColor] = useState(profile.themeColor);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 751px)");
+    const closeOnDesktop = () => { setIsMobile(!desktop.matches); if (desktop.matches) setMobileMenuOpen(false); };
+    closeOnDesktop();
+    desktop.addEventListener("change", closeOnDesktop);
+    return () => desktop.removeEventListener("change", closeOnDesktop);
+  }, []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const initials =
     profile.name
@@ -90,11 +103,9 @@ export function WorkspaceFrame({
       setBusy(false);
     }
   }
-  return (
-    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-      <aside id="workspace-sidebar" className="app-sidebar">
+  const sidebarContent = <>
         <Brand />
-        <nav aria-label="Workspace navigation">
+        <nav aria-label="Workspace navigation" onClick={event => { if ((event.target as Element).closest("a")) setMobileMenuOpen(false); }}>
           <Link
             className={`sidebar-link${!isUsers && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation" && pathname !== "/recovered-leads" && pathname !== "/my-recovered-leads" ? " active" : ""}`}
             aria-current={
@@ -209,6 +220,11 @@ export function WorkspaceFrame({
             </Link>
           )}
         </nav>
+  </>;
+  return (
+    <div className={`app-shell${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      <aside id="workspace-sidebar" className="app-sidebar">
+        {sidebarContent}
       </aside>
       <div
         className="app-main"
@@ -218,6 +234,17 @@ export function WorkspaceFrame({
         tabIndex={0}
       >
         <header className="dashboard-header">
+          <Dialog.Root open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+            <Dialog.Trigger asChild><Button variant="ghost" className="mobile-menu-toggle" aria-label="Open navigation menu"><Menu/></Button></Dialog.Trigger>
+            <Dialog.Portal>
+              <Dialog.Overlay className="mobile-sidebar-overlay"/>
+              <Dialog.Content className="mobile-sidebar-drawer" aria-describedby={undefined}>
+                <Dialog.Title className="sr-only">Workspace navigation</Dialog.Title>
+                <Dialog.Close asChild><Button variant="ghost" className="mobile-menu-close" aria-label="Close navigation menu"><X/></Button></Dialog.Close>
+                <div className="app-sidebar mobile-sidebar-content">{sidebarContent}</div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
           <Button
             variant="ghost"
             className="sidebar-toggle"
@@ -231,19 +258,12 @@ export function WorkspaceFrame({
             {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
           </Button>
           <div className="navbar-actions">
+            <div className="desktop-navbar-controls">
             {profile.role === "recovery_admin" && <RecoveryPeriodControls />}
-            <RecoveryStatisticsButton
-              enabled={
-                profile.role === "recovery_admin" ||
-                profile.role === "recovery_executive"
-              }
-            />
-            <ThemeToggle
-              key={profile.id}
-              userId={profile.id}
-              initialColor={profile.themeColor}
-            />
+            <RecoveryStatisticsButton enabled={profile.role === "recovery_admin" || profile.role === "recovery_executive"}/>
+            {!isMobile && <ThemeToggle key={profile.id} userId={profile.id} initialColor={appearanceColor} onColorChange={setAppearanceColor}/>}
             <span className="navbar-divider" />
+            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -269,6 +289,11 @@ export function WorkspaceFrame({
                   <strong>{profile.name}</strong>
                   <span>{profile.email}</span>
                 </DropdownMenuLabel>
+                {isMobile && <>
+                  <DropdownMenuSeparator />
+                  <RecoveryStatisticsButton menuItem enabled={profile.role === "recovery_admin" || profile.role === "recovery_executive"}/>
+                  <ThemeToggle key={profile.id} inline userId={profile.id} initialColor={appearanceColor} onColorChange={setAppearanceColor}/>
+                </>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={busy}
