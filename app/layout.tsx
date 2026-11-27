@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Toaster } from "@/components/ui/sonner";
+import { SheetColumnResize } from "@/components/sheet-column-resize";
+import { SheetCopyMenu } from "@/components/sheet-copy-menu";
 import { ThemeProvider } from "@/components/theme-provider";
 
 export const metadata: Metadata = {
@@ -9,5 +11,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en" suppressHydrationWarning><body><ThemeProvider>{children}<Toaster position="top-right" richColors closeButton/></ThemeProvider></body></html>;
+  return <html lang="en" suppressHydrationWarning><body><ThemeProvider>{children}<SheetColumnResize/><SheetCopyMenu/><Toaster position="top-right" richColors closeButton/></ThemeProvider></body></html>;
 }

@@ -377,7 +377,7 @@ test('invalid APP_URL fails closed', () => {
 
 const recoveryFile = 'app/api/recovery-admin/leads/route.ts';
 const recoveryHeader = fs.readFileSync('public/recovery-leads-template.csv', 'utf8').trim();
-const recoveryLine = 'unknown date,,+91 123,not-an-email,,Executive,amount pending,,Plan,Domain,May,Yes,Pending,New';
+const recoveryLine = 'unknown date,,+91 123,not-an-email,,Executive,amount pending,Plan,Domain,May,Yes,1000,Pending,New,Follow up,3500,';
 test('recovery CSV preserves all cells, blanks, and repeated students', () => {
   const { parseRecoveryCsv } = load('lib/recovery/csv.ts');
   const rows = parseRecoveryCsv(recoveryHeader + '\n' + recoveryLine + '\n' + recoveryLine);
@@ -659,4 +659,23 @@ test('user and token verification start concurrently while retaining credential 
     getClaims: async () => { assert.equal(userStarted, true); release(); return { data: { claims: { app_metadata: {} } }, error: null }; },
   } };
   assert.equal((await load('lib/auth/session.ts', { client, realSession: true }).currentUser()).id, member.id);
+});
+
+test('recovery CSV imports new payment fields and keeps payment links blank', () => {
+  const { parseRecoveryCsv } = load('lib/recovery/csv.ts');
+  const { leadColumns } = load('lib/recovery/columns.ts');
+  const [row] = parseRecoveryCsv(recoveryHeader + '\n' + recoveryLine);
+  assert.equal(row.amountPaid, '1000');
+  assert.equal(row.remainingAmount, '3500');
+  assert.equal(row.comments, 'Follow up');
+  assert.equal(row.paymentLinks, '');
+  assert.equal(row.registrationAmount, undefined);
+  const keys = Object.keys(leadColumns);
+  assert.equal(keys[keys.indexOf('referrals') + 1], 'amountPaid');
+  assert.equal(keys[keys.indexOf('comments') + 1], 'remainingAmount');
+  assert.equal(keys[keys.indexOf('remainingAmount') + 1], 'paymentLinks');
+  assert.throws(() => parseRecoveryCsv(recoveryHeader.replace(',payment_links', '') + '\n' + recoveryLine), /payment_links column/);
+  assert.throws(() => parseRecoveryCsv(recoveryHeader.replace(',Amount paid', '') + '\n' + recoveryLine), /Amount paid column/);
+  const [linked] = parseRecoveryCsv(recoveryHeader + '\n' + recoveryLine + 'https://example.com/pay');
+  assert.equal(linked.paymentLinks, 'https://example.com/pay');
 });

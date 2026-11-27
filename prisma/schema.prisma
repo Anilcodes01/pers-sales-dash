@@ -81,7 +81,10 @@ model RecoveryLead {
   studentCollegeEmail String @map("student_college_email") @db.Text
   executiveName String @map("executive_name") @db.Text
   amountMentioned String @map("amount_mentioned") @db.Text
-  registrationAmount String @map("registration_amount") @db.Text
+  registrationAmount String @default("") @map("registration_amount") @db.Text
+  amountPaid String @default("") @map("amount_paid") @db.Text
+  remainingAmount String @default("") @map("remaining_amount") @db.Text
+  paymentLinks String @default("") @map("payment_links") @db.Text
   programPlan String @map("program_plan") @db.Text
   domain String @map("domain") @db.Text
   selectedMonth String @map("selected_month") @db.Text

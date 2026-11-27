@@ -1,4 +1,5 @@
 "use client";
+import { Pencil } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
@@ -15,5 +16,5 @@ export function RecoveryCommentCell({ id, value, student, onSaved }: { id: strin
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not save comments."); }
     finally { setSaving(false); }
   }
-  return editing ? <form className="custom-status-form" onSubmit={event => { event.preventDefault(); void save(); }}><textarea aria-label={`Comments for ${student || "student"}`} value={draft} maxLength={5000} rows={3} autoFocus disabled={saving} onChange={event => setDraft(event.target.value)}/><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => setEditing(false)}>Cancel</Button></form> : <button type="button" className="recovery-comment-button" aria-label={`Edit comments for ${student || "student"}`} onClick={() => { setDraft(value); setEditing(true); }}>{value || "Add comment…"}</button>;
+  return editing ? <form className="custom-status-form" onSubmit={event => { event.preventDefault(); void save(); }}><textarea aria-label={`Comments for ${student || "student"}`} value={draft} maxLength={5000} rows={3} autoFocus disabled={saving} onChange={event => setDraft(event.target.value)}/><Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save"}</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => setEditing(false)}>Cancel</Button></form> : <div className="sheet-comment-cell"><span>{value || "—"}</span><button type="button" data-copy-ignore className="recovery-comment-button sheet-comment-edit" aria-label={`Edit comments for ${student || "student"}`} onClick={() => { setDraft(value); setEditing(true); }}><Pencil size={14}/></button></div>;
 }

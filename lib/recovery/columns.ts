@@ -6,12 +6,15 @@ export const leadColumns = {
   studentCollegeEmail: "Student College Email",
   executiveName: "Student's Executive's Name",
   amountMentioned: "Amount Mentioned by Executive",
-  registrationAmount: "Amount Paid for registration",
   programPlan: "Program Plan",
   domain: "Domain",
   selectedMonth: "Month selected",
   referrals: "Any refferals",
+  amountPaid: "Amount paid",
   paymentStatus: "payment_Status",
   leadStatus: "Lead_Status",
+  comments: "Comments",
+  remainingAmount: "Remaining amount need to pay",
+  paymentLinks: "payment_links",
 } as const;
 export type LeadValues = Record<keyof typeof leadColumns, string>;
