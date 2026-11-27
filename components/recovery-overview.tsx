@@ -1,10 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
 import { AllocationSheet, type AllocationStudent } from "./allocation-sheet";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
+import { RecoveryPaymentLinks } from "./recovery-payment-links";
 import { RecoveryMonthFilter } from "./recovery-month-filter";
 import { CURRENT_MONTH, currentRecoveryMonth } from "@/lib/recovery/month";
 export function RecoveryOverview() {
@@ -49,6 +51,14 @@ export function RecoveryOverview() {
     void load();
     return () => controller.abort();
   }, [month, revision]);
+  const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
+    if (Array.isArray(data.records)) setRecords(data.records as AllocationStudent[]);
+  }, []);
+  useRecoveryLiveRefresh(`/api/recovery-admin/overview${month === null ? "" : `?month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, receiveLiveRows);
+  const applyPaymentLinks = useCallback((updates: { leadId: string; url: string }[]) => {
+    const links = new Map(updates.map(update => [update.leadId, update.url]));
+    setRecords(rows => rows.map(row => links.has(row.id) ? { ...row, paymentLinks: links.get(row.id)! } : row));
+  }, []);
   return (
     <Card className="csv-records-card recovery-sheet-card recovery-overview-card">
       <div className="recovery-overview-toolbar">
@@ -65,6 +75,7 @@ export function RecoveryOverview() {
             disabled={loading}
           />
         </label>
+        <RecoveryPaymentLinks month={month === CURRENT_MONTH ? currentRecoveryMonth() : month} disabled={loading || failed || !records.length} onUpdates={applyPaymentLinks}/>
         <Button
           variant="outline"
           disabled={loading}

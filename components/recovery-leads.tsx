@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Upload, Download, Loader2, RefreshCw } from "lucide-react";
+import { PaymentLinkCell } from "./payment-link-cell";
 import { RecoveryStatusBadge } from "./recovery-status-badge";
 import { leadColumns, type LeadValues } from "@/lib/recovery/columns";
 import { Button } from "./ui/button";
@@ -39,6 +40,8 @@ function LeadsTable({ rows, saved = false }: { rows: Row[]; saved?: boolean }) {
               <TableCell key={key}>
                 {key === "paymentStatus" || key === "leadStatus" ? (
                   <RecoveryStatusBadge field={key} value={row[key]} />
+                ) : key === "paymentLinks" ? (
+                  <PaymentLinkCell value={row[key]}/>
                 ) : (
                   row[key]
                 )}

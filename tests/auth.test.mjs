@@ -16,12 +16,13 @@ function load(file, options = {}) {
     const exports = {}; cache.set(filename, exports);
     const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
     vm.runInNewContext(code, { exports, URL, performance, Buffer, Response, File, TextDecoder, process: { env: options.env || {} }, require(name) {
+      if (options.modules && Object.hasOwn(options.modules, name)) return options.modules[name];
       if (name === 'server-only') return {};
       if (name === '@/lib/db') return { db: () => { options.onDb?.(); return options.db; } };
       if (name === 'next/navigation') return { redirect: (destination) => { throw new Error(`REDIRECT:${destination}`); } };
       if (name === 'csv-parse/sync') return { parse };
       if (name === 'node:crypto') return { createHash, randomUUID: () => 'new-version' };
-      if (name === 'next/server') return { connection: async () => { options.onConnection?.(); }, NextResponse: { json: (body, extra) => ({ body, ...extra, headers: { ...extra?.headers, set(name, value) { this[name] = value; } } }) } };
+      if (name === 'next/server') return { after: callback => { options.onAfter?.(callback); }, connection: async () => { options.onConnection?.(); }, NextResponse: { json: (body, extra) => ({ body, ...extra, headers: { ...extra?.headers, set(name, value) { this[name] = value; } } }) } };
       if (name === '@/lib/supabase/server') return { createAuthClient: async () => options.client };
       if (name === '@/lib/supabase/config') return { authConfigured: () => options.configured !== false };
       if (name === '@/lib/supabase/admin') return { adminConfigured: () => options.adminConfigured !== false, createAdminClient: () => {
@@ -678,4 +679,88 @@ test('recovery CSV imports new payment fields and keeps payment links blank', ()
   assert.throws(() => parseRecoveryCsv(recoveryHeader.replace(',Amount paid', '') + '\n' + recoveryLine), /Amount paid column/);
   const [linked] = parseRecoveryCsv(recoveryHeader + '\n' + recoveryLine + 'https://example.com/pay');
   assert.equal(linked.paymentLinks, 'https://example.com/pay');
+});
+
+const paymentLinkRoute = 'app/api/recovery-admin/payment-links/route.ts';
+const paymentModules = {
+  '@/lib/recovery/payment-links': { paymentConfig: () => ({ key: 'rzp_test_example', secret: 'secret' }), paymentJobView: async id => ({ id }) },
+  '@/lib/recovery/payment-link-worker.mjs': { processPaymentBatch: async () => {} },
+};
+test('payment-link endpoints reject unauthenticated users and every non-recovery-admin role', async () => {
+  for (const user of [null, member, mainAdmin, recoveryExecutive]) {
+    const route = load(paymentLinkRoute, { user, modules: paymentModules, onDb: () => assert.fail('Unauthorized database access') });
+    assert.equal((await route.GET(request())).status, user ? 403 : 401);
+    assert.equal((await route.POST(request({ action: 'start', month: 'December' }))).status, user ? 403 : 401);
+  }
+});
+test('payment-link generation rejects foreign origins before creating jobs', async () => {
+  const route = load(paymentLinkRoute, { user: recoveryAdmin, modules: paymentModules, onDb: () => assert.fail('Database accessed for foreign origin') });
+  assert.equal((await route.POST(request({ action: 'start', month: 'December' }, 'https://other.example'))).status, 403);
+});
+test('generation snapshots server balances for the selected month, never client-supplied amounts', async () => {
+  let query; let created; let scheduled = false;
+  const route = load(paymentLinkRoute, { user: recoveryAdmin, modules: paymentModules, onAfter: () => { scheduled = true; }, db: {
+    recoveryPaymentJob: { findFirst: async () => null, create: async ({ data }) => { created = data; return { id: member.id }; } },
+    recoveryLead: { findMany: async args => { query = args; return [{ id: member.id, studentName: 'Student', remainingAmount: '1500' }]; } },
+  } });
+  const result = await route.POST(request({ action: 'start', month: 'December', remainingAmount: '1', leadIds: ['other-student'] }));
+  assert.equal(result.status, 200); assert.equal(result.body.job.id, member.id);
+  assert.equal(query.where.selectedMonth, 'December');
+  assert.equal(query.orderBy[0].createdAt, 'desc');
+  assert.equal(query.orderBy[1].id, 'asc');
+  assert.equal(created.items.createMany.data[0].remainingAmount, '1500');
+  assert.equal(created.items.createMany.data[0].position, 0);
+  assert.equal(created.createdBy, recoveryAdmin.id); assert.equal(scheduled, true);
+});
+test('existing running generation is resumed instead of creating another job', async () => {
+  const route = load(paymentLinkRoute, { user: recoveryAdmin, modules: paymentModules, db: {
+    recoveryPaymentJob: { findFirst: async () => ({ id: member.id }), create: async () => assert.fail('Duplicate job') },
+    recoveryLead: { findMany: async () => assert.fail('Snapshot repeated') },
+  } });
+  const result = await route.POST(request({ action: 'start', month: 'December' }));
+  assert.equal(result.body.job.id, member.id);
+});
+
+test('Stop generation changes shared job state without starting another provider batch', async () => {
+  const writes = [];
+  const route = load(paymentLinkRoute, { user: recoveryAdmin, modules: {
+    ...paymentModules,
+    '@/lib/recovery/payment-link-worker.mjs': { processPaymentBatch: async () => assert.fail('Stop must not process a new batch') },
+  }, db: {
+    recoveryPaymentJob: {
+      findFirst: async () => ({ id: member.id, status: 'running' }),
+      updateMany: async args => { writes.push(args); return { count: 1 }; },
+    },
+  } });
+  const result = await route.POST(request({ action: 'stop', jobId: member.id }));
+  assert.equal(result.status, 200);
+  assert.equal(writes[0].where.accountKey, 'rzp_test_example');
+  assert.equal(writes[0].data.status, 'stopping');
+  assert.equal(writes[1].data.status, 'stopped');
+  assert.equal(writes[1].where.OR.length, 2);
+});
+test('Resume generation only transitions stopped jobs', async () => {
+  let condition;
+  const route = load(paymentLinkRoute, { user: recoveryAdmin, modules: paymentModules, db: {
+    recoveryPaymentJob: {
+      findFirst: async () => ({ id: member.id, status: 'running' }),
+      updateMany: async args => { condition = args.where; return { count: 0 }; },
+    },
+  } });
+  assert.equal((await route.POST(request({ action: 'resume', jobId: member.id }))).status, 409);
+  assert.equal(condition.status, 'stopped');
+});
+
+test('public Razorpay webhook rejects bad signatures before accessing the database', async () => {
+  class InvalidWebhook extends Error { constructor() { super('Invalid webhook signature.'); this.status = 401; } }
+  const route = load('app/api/webhooks/razorpay/route.ts', { modules: {
+    '@/lib/recovery/payment-webhook.mjs': { verifyWebhook: () => { throw new InvalidWebhook(); }, handlePaymentWebhook: () => assert.fail('Unverified webhook processed'), WebhookError: InvalidWebhook },
+  }, onDb: () => assert.fail('Unverified webhook accessed the database') });
+  assert.equal((await route.POST(request({ event: 'payment_link.paid' }))).status, 401);
+});
+test('public Razorpay webhook bounds request size before verification and database access', async () => {
+  const route = load('app/api/webhooks/razorpay/route.ts', { modules: {
+    '@/lib/recovery/payment-webhook.mjs': { verifyWebhook: () => assert.fail('Oversized body verified'), handlePaymentWebhook: () => assert.fail('Oversized body processed'), WebhookError: class extends Error {} },
+  }, onDb: () => assert.fail('Oversized webhook accessed the database') });
+  assert.equal((await route.POST(request({ data: 'x'.repeat(270000) }))).status, 413);
 });

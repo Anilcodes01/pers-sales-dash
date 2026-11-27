@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
 import { toast } from "sonner";
 import { RefreshCw, Loader2 } from "lucide-react";
 import { AllocationSheet, type AllocationStudent } from "./allocation-sheet";
@@ -103,6 +104,11 @@ export function RecoveryAllocation({
     void load();
     return () => controller.abort();
   }, [executive, month, revision]);
+  const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
+    if (Array.isArray(data.records)) setRecords(data.records as Student[]);
+    if (typeof data.total === "number") setTotal(data.total);
+  }, []);
+  useRecoveryLiveRefresh(executive ? "/api/recovery-executive/leads" : null, receiveLiveRows);
   async function allocate(ids: string[], target: string, reassign = true) {
     setBusy(true);
     try {

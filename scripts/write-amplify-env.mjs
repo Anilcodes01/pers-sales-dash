@@ -8,6 +8,7 @@ if (missing.length) {
   process.exit(1);
 }
 // Escape dollars for Next.js dotenv expansion as well as quotes/newlines.
-const content = keys.map(key => `${key}=${JSON.stringify(process.env[key]).replace(/\$/g, '\\$')}`).join('\n');
+const runtimeKeys = [...keys, ...['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET', 'RECOVERY_PAYMENT_CONCURRENCY', 'RECOVERY_PAYMENT_REQUESTS_PER_SECOND'].filter(key => process.env[key])];
+const content = runtimeKeys.map(key => `${key}=${JSON.stringify(process.env[key]).replace(/\$/g, '\\$')}`).join('\n');
 writeFileSync('.env.production', `${content}\n`, { mode: 0o600 });
 console.log('Prepared the allowlisted SSR environment variables.');

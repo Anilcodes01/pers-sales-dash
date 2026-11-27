@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, type PointerEvent } from "react";
 import { leadColumns, type LeadValues } from "@/lib/recovery/columns";
+import { PaymentLinkCell } from "./payment-link-cell";
 import { RecoveryStatusBadge } from "./recovery-status-badge";
 import { RecoveryCommentCell } from "./recovery-comment-cell";
 import { RecoveryStatusCell } from "./recovery-status-cell";
@@ -60,7 +61,7 @@ export function AllocationSheet({ rows, executives, selected, onSelect, disabled
       <tbody>{rows.map((row, index) => <tr key={row.id} data-student-index={index} aria-selected={!executive && selectedSet.has(row.id)} className={selectedSet.has(row.id) ? "is-selected" : ""} onPointerDown={event => start(event, index)} onDragStart={event => event.preventDefault()}>
         <th scope="row"><span className="allocation-row-selector">{!executive && !readOnly && <input type="checkbox" aria-label={`Select row ${index + 1}: ${row.studentName || 'student'}`} disabled={disabled} checked={selectedSet.has(row.id)} onPointerDown={event => event.stopPropagation()} onChange={event => { anchor.current = index; onSelect(event.target.checked ? [...selected, row.id] : selected.filter(id => id !== row.id)); }}/>}<span>{offset + index + 1}</span></span></th>
         {!executive && <td title={row.assignedTo ? executives.find(person => person.id === row.assignedTo)?.name || "Assigned executive (unavailable)" : "Unassigned"}>{row.assignedTo ? executives.find(person => person.id === row.assignedTo)?.name || "Unavailable" : "Unassigned"}</td>}
-        {(Object.keys(leadColumns) as (keyof LeadValues)[]).map(key => <td key={key} title={row[key]} data-copy-value={row[key]}>{executive && !readOnly && (key === "paymentStatus" || key === "leadStatus") ? <RecoveryStatusCell id={row.id} student={row.studentName} field={key} value={row[key]} onSaved={value => onStatusSaved?.(row.id, key, value)}/> : (key === "paymentStatus" || key === "leadStatus") ? <RecoveryStatusBadge field={key} value={row[key]}/> : key === "comments" && executive && !readOnly ? <RecoveryCommentCell id={row.id} value={row.comments || ""} student={row.studentName} onSaved={value => onStatusSaved?.(row.id, "comments", value)}/> : <span className={key === "comments" ? "recovery-comment-text" : undefined}>{row[key] || "—"}</span>}</td>)}
+        {(Object.keys(leadColumns) as (keyof LeadValues)[]).map(key => <td key={key} title={row[key]} data-copy-value={row[key]}>{executive && !readOnly && (key === "paymentStatus" || key === "leadStatus") ? <RecoveryStatusCell id={row.id} student={row.studentName} field={key} value={row[key]} onSaved={value => onStatusSaved?.(row.id, key, value)}/> : (key === "paymentStatus" || key === "leadStatus") ? <RecoveryStatusBadge field={key} value={row[key]}/> : key === "paymentLinks" ? <PaymentLinkCell value={row[key]}/> : key === "comments" && executive && !readOnly ? <RecoveryCommentCell id={row.id} value={row.comments || ""} student={row.studentName} onSaved={value => onStatusSaved?.(row.id, "comments", value)}/> : <span className={key === "comments" ? "recovery-comment-text" : undefined}>{row[key] || "—"}</span>}</td>)}
 
       </tr>)}</tbody>
     </table></div>

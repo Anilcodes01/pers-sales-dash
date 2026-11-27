@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "worker:payment-links": "node scripts/recovery-payment-worker.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "postinstall": "prisma generate"

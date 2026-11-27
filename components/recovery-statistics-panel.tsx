@@ -56,6 +56,11 @@ export function RecoveryStatisticsPanel({ individual = false, month, months = []
     window.addEventListener("recovery-period-changed", refresh);
     return () => window.removeEventListener("recovery-period-changed", refresh);
   }, []);
+  useEffect(() => {
+    if (!open) return;
+    const timer = setInterval(() => { if (!document.hidden) { cache.current.clear(); setRevision(value => value + 1); } }, 15000);
+    return () => clearInterval(timer);
+  }, [open]);
   if (!state) return null;
   return <Dialog.Root open={open} onOpenChange={value => state.setOpenPath(value ? pathname : null)}><Dialog.Portal><Dialog.Overlay className="statistics-panel-overlay"/><Dialog.Content className="statistics-panel" onCloseAutoFocus={event => { event.preventDefault(); document.querySelector<HTMLButtonElement>(".statistics-navbar-button")?.focus(); }}><header className="statistics-panel-heading"><div><Dialog.Title>Recovery statistics</Dialog.Title><Dialog.Description>{individual ? "Your assigned students" : "Recovery overview"}</Dialog.Description></div><div className="statistics-heading-actions"><label className="statistics-month-filter">Month<RecoveryMonthFilter month={selectedMonth} months={statistics?.months || months} currentMonthName={currentMonthName} onChange={setPanelMonth} disabled={loading} label="Statistics month"/></label><Button variant="ghost" size="icon" aria-label="Refresh statistics" title="Refresh statistics" disabled={loading} onClick={() => { cache.current.clear(); setRevision(value => value + 1); }}><RefreshCw className={loading ? "animate-spin" : ""}/></Button><Dialog.Close asChild><Button variant="ghost" size="icon" aria-label="Close statistics"><X/></Button></Dialog.Close></div></header><div className="statistics-panel-body">{loading ? <p>Loading statistics…</p> : failed ? <p>Statistics could not be loaded. Use Refresh above to retry.</p> : statistics ? <RecoveryLeaderboard statistics={statistics} individual={individual}/> : <p>Loading statistics…</p>}</div></Dialog.Content></Dialog.Portal></Dialog.Root>;
 }

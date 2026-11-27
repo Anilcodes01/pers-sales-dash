@@ -2461,3 +2461,13 @@ body:has(.app-shell) {
 .app-main table th[data-resize-hover="true"] { cursor: col-resize; }
 .app-main table th[data-resize-hover="true"]::after { background: var(--ring); }
 body.sheet-column-resizing, body.sheet-column-resizing * { cursor: col-resize !important; user-select: none !important; }
+
+.payment-link-controls { display: contents; }
+.payment-link-progress { order: 10; flex: 0 0 100%; font-size: 13px; padding: 12px; border: 1px solid var(--border); background: var(--muted); }
+.payment-link-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+.payment-link-status > span { color: var(--muted-foreground); }
+.payment-link-progress progress { width: 100%; height: 6px; accent-color: var(--primary); margin: 10px 0; }
+.payment-link-progress p { margin: 6px 0; }
+.payment-link-progress li { margin-block: 4px; }
+.sheet-payment-link { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.sheet-payment-link svg { display: inline; margin-left: 5px; }

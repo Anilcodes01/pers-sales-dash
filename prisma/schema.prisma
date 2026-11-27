@@ -109,3 +109,60 @@ model RecoveryPeriod {
   endedBy String? @map("ended_by") @db.Uuid
   @@map("recovery_periods")
 }
+
+model RecoveryPaymentJob {
+  nextRequestAt DateTime? @map("next_request_at") @db.Timestamptz(6)
+  id String @id @default(uuid()) @db.Uuid
+  accountKey String @map("account_key") @db.Text
+  selectedMonth String? @map("selected_month") @db.Text
+  createdBy String @map("created_by") @db.Uuid
+  status String @default("running") @db.Text
+  lockToken String? @map("lock_token") @db.Uuid
+  lockedUntil DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  items RecoveryPaymentItem[]
+  @@index([accountKey, createdAt])
+  @@map("recovery_payment_jobs")
+}
+model RecoveryPaymentItem {
+  position Int @default(0)
+  id String @id @default(uuid()) @db.Uuid
+  jobId String @map("job_id") @db.Uuid
+  leadId String @map("lead_id") @db.Uuid
+  studentName String @map("student_name") @db.Text
+  remainingAmount String @map("remaining_amount") @db.Text
+  status String @default("pending") @db.Text
+  attempts Int @default(0)
+  reason String @default("") @db.Text
+  url String @default("") @db.Text
+  retryAt DateTime? @map("retry_at") @db.Timestamptz(6)
+  job RecoveryPaymentJob @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  @@unique([jobId, leadId])
+  @@index([jobId, status])
+  @@index([jobId, position])
+  @@map("recovery_payment_items")
+}
+model RecoveryPaymentLink {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @map("lead_id") @db.Uuid
+  accountKey String @map("account_key") @db.Text
+  amountPaise BigInt @map("amount_paise")
+  reference String @unique @db.VarChar(40)
+  providerId String? @unique @map("provider_id") @db.Text
+  url String @default("") @db.Text
+  status String @default("pending") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  @@unique([leadId, accountKey])
+  @@map("recovery_payment_links")
+}
+
+model RecoveryWebhookEvent {
+  eventId String @id @map("event_id") @db.VarChar(255)
+  payloadHash String @map("payload_hash") @db.Char(64)
+  providerLinkId String @map("provider_link_id") @db.Text
+  eventType String @map("event_type") @db.Text
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+  @@map("recovery_webhook_events")
+}
