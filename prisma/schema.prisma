@@ -193,3 +193,11 @@ model RecoveryPaymentRevision {
   @@index([leadId, accountKey])
   @@map("recovery_payment_revisions")
 }
+
+model RecoverySheetChange {
+  id BigInt @id @default(autoincrement())
+  leadId String @map("lead_id") @db.Uuid
+  oldMonth String? @map("old_month") @db.Text
+  newMonth String? @map("new_month") @db.Text
+  @@map("recovery_sheet_changes")
+}

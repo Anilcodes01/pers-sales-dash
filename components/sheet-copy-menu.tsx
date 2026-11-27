@@ -77,7 +77,7 @@ export function SheetCopyMenu() {
       // Keep native editing/selection menus inside active text editors.
       if (event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
       const cell = event.target.closest<HTMLTableCellElement>("td, th");
-      if (!cell || !cell.closest("table")) return;
+      if (!cell || !cell.closest("table") || cell.closest("[data-sheet-spacer]")) return;
       event.preventDefault();
       event.stopPropagation();
       select(cell);
@@ -109,6 +109,14 @@ export function SheetCopyMenu() {
       if (event.key === "Escape") { select(null); setOpen(false); setViewing(false); }
       const row = cell.parentElement as HTMLTableRowElement;
       const table = cell.closest("table");
+      if (table?.dataset.virtualSheet && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        const currentIndex = row.dataset.studentIndex === undefined ? -1 : Number(row.dataset.studentIndex);
+        const rowIndex = currentIndex + (event.key === "ArrowDown" ? 1 : -1);
+        event.preventDefault();
+        if (rowIndex < 0) { const header = table.tHead?.rows[0]?.cells[cell.cellIndex]; header?.click(); header?.focus({ preventScroll: true }); }
+        else table.dispatchEvent(new CustomEvent("sheet-navigate-cell", { bubbles: true, detail: { rowIndex, columnIndex: cell.cellIndex } }));
+        return;
+      }
       let next: HTMLTableCellElement | undefined;
       if (event.key === "ArrowLeft") next = row.cells[cell.cellIndex - 1];
       if (event.key === "ArrowRight") next = row.cells[cell.cellIndex + 1];
@@ -120,11 +128,15 @@ export function SheetCopyMenu() {
     function prepareTables() {
       document.querySelectorAll<HTMLTableElement>(".app-main table").forEach(table => {
         const columns = table.tHead?.rows[0]?.cells.length || table.rows[0]?.cells.length || 1;
-        table.style.setProperty("--sheet-columns", String(columns));
+        if (table.style.getPropertyValue("--sheet-columns") !== String(columns)) table.style.setProperty("--sheet-columns", String(columns));
       });
     }
     prepareTables();
-    const observer = new MutationObserver(prepareTables);
+    let prepareFrame = 0;
+    const observer = new MutationObserver(records => {
+      const structural = records.some(record => [...record.addedNodes, ...record.removedNodes].some(node => node instanceof Element && (node.matches('table, thead, th[scope="col"]') || node.querySelector('table, thead'))));
+      if (structural && !prepareFrame) prepareFrame = requestAnimationFrame(() => { prepareFrame = 0; prepareTables(); });
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", click, true);
     document.addEventListener("keydown", keydown, true);
@@ -133,7 +145,7 @@ export function SheetCopyMenu() {
     document.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
     return () => {
-      observer.disconnect();
+      observer.disconnect(); cancelAnimationFrame(prepareFrame);
       selected.current?.removeAttribute("data-sheet-active");
       document.removeEventListener("click", click, true);
       document.removeEventListener("keydown", keydown, true);

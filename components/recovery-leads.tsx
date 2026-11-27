@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { Upload, Download, Loader2, RefreshCw } from "lucide-react";
+import { RecoveryStatusCell } from "./recovery-status-cell";
+import { RecoveryPaymentLinkEditor } from "./recovery-payment-link-editor";
 import { PaymentLinkCell } from "./payment-link-cell";
 import { RecoveryStatusBadge } from "./recovery-status-badge";
 import { leadColumns, type LeadValues } from "@/lib/recovery/columns";
@@ -17,7 +19,7 @@ import {
   TableCell,
 } from "./ui/table";
 type Row = LeadValues & { id?: string; createdAt?: string; updatedAt?: string };
-function LeadsTable({ rows, saved = false }: { rows: Row[]; saved?: boolean }) {
+function LeadsTable({ rows, saved = false, onSaved }: { rows: Row[]; saved?: boolean; onSaved?: (id: string, field: keyof LeadValues, value: string) => void }) {
   return (
     <Table className="people-table sales-table">
       <TableHeader>
@@ -38,7 +40,7 @@ function LeadsTable({ rows, saved = false }: { rows: Row[]; saved?: boolean }) {
           <TableRow key={row.id || index}>
             {(Object.keys(leadColumns) as (keyof LeadValues)[]).map((key) => (
               <TableCell key={key}>
-                {key === "paymentStatus" || key === "leadStatus" ? (
+                {saved && row.id && (key === "paymentStatus" || key === "leadStatus") ? <RecoveryStatusCell admin id={row.id} field={key} student={row.studentName} value={row[key]} onSaved={(value, changes) => { onSaved?.(row.id!, key, value); if (key === "leadStatus" && changes?.paymentStatus) onSaved?.(row.id!, "paymentStatus", changes.paymentStatus); }}/> : saved && row.id && key === "paymentLinks" ? <RecoveryPaymentLinkEditor id={row.id} value={row[key]} onSaved={value => onSaved?.(row.id!, key, value)}/> : key === "paymentStatus" || key === "leadStatus" ? (
                   <RecoveryStatusBadge field={key} value={row[key]} />
                 ) : key === "paymentLinks" ? (
                   <PaymentLinkCell value={row[key]}/>
@@ -220,7 +222,7 @@ export function RecoveryLeads() {
         ) : failed ? (
           <p>Unable to load students. Use Refresh to retry.</p>
         ) : records.length ? (
-          <LeadsTable rows={records} saved />
+          <LeadsTable rows={records} saved onSaved={(id, field, value) => setRecords(rows => rows.map(row => row.id === id ? { ...row, [field]: value } : row))}/>
         ) : (
           <p>No students uploaded yet.</p>
         )}

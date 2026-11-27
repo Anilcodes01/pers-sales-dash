@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { mergeSheetRows } from "@/lib/recovery/merge-sheet-rows";
 import { useRecoveryLiveRefresh } from "./use-recovery-live-refresh";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
@@ -9,7 +10,10 @@ import { Button } from "./ui/button";
 import { RecoveryPaymentLinks } from "./recovery-payment-links";
 import { RecoveryMonthFilter } from "./recovery-month-filter";
 import { CURRENT_MONTH, currentRecoveryMonth } from "@/lib/recovery/month";
+const EMPTY_SELECTION: string[] = [];
+const ignoreSelection = () => {};
 export function RecoveryOverview() {
+  const cursor = useRef<string | null>(null);
   const [month, setMonth] = useState<string | null>(CURRENT_MONTH);
   const [currentMonthName, setCurrentMonthName] = useState("");
   const [months, setMonths] = useState<string[]>([]);
@@ -23,6 +27,7 @@ export function RecoveryOverview() {
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
+      cursor.current = null;
       setLoading(true);
       setFailed(false);
       setCurrentMonthName(currentRecoveryMonth());
@@ -34,7 +39,8 @@ export function RecoveryOverview() {
         const data = await response.json();
         if (!response.ok)
           throw new Error(data.error || "Could not load recovery students.");
-        setRecords(data.records);
+        setRecords(rows => mergeSheetRows(rows, data.records, [], true));
+        cursor.current = data.cursor;
         setMonths(data.months);
         setExecutives(data.executives);
       } catch (error) {
@@ -52,13 +58,14 @@ export function RecoveryOverview() {
     return () => controller.abort();
   }, [month, revision]);
   const receiveLiveRows = useCallback((data: Record<string, unknown>) => {
-    if (Array.isArray(data.records)) setRecords(data.records as AllocationStudent[]);
+    if (Array.isArray(data.records)) setRecords(rows => mergeSheetRows(rows, data.records as AllocationStudent[], Array.isArray(data.removedIds) ? data.removedIds as string[] : [], Boolean(data.reset)));
   }, []);
-  useRecoveryLiveRefresh(`/api/recovery-admin/overview${month === null ? "" : `?month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, receiveLiveRows);
+  useRecoveryLiveRefresh(`/api/recovery-admin/overview${month === null ? "" : `?month=${encodeURIComponent(month === CURRENT_MONTH ? currentRecoveryMonth() : month)}`}`, receiveLiveRows, cursor);
   const applyPaymentLinks = useCallback((updates: { leadId: string; url: string }[]) => {
     const links = new Map(updates.map(update => [update.leadId, update.url]));
-    setRecords(rows => rows.map(row => links.has(row.id) ? { ...row, paymentLinks: links.get(row.id)! } : row));
+    setRecords(rows => rows.map(row => links.has(row.id) && links.get(row.id) !== row.paymentLinks ? { ...row, paymentLinks: links.get(row.id)! } : row));
   }, []);
+  const saveCell = useCallback((id: string, field: keyof AllocationStudent, value: string) => setRecords(rows => rows.map(row => row.id === id && row[field] !== value ? { ...row, [field]: value } : row)), []);
   return (
     <Card className="csv-records-card recovery-sheet-card recovery-overview-card">
       <div className="recovery-overview-toolbar">
@@ -96,11 +103,14 @@ export function RecoveryOverview() {
             <AllocationSheet
               rows={records}
               executives={executives}
-              selected={[]}
-              onSelect={() => {}}
+              selected={EMPTY_SELECTION}
+              onSelect={ignoreSelection}
               disabled
               executive={false}
               readOnly
+              adminEditable
+              virtualized
+              onStatusSaved={saveCell}
             />
           )}
         </>

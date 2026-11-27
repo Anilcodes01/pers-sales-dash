@@ -130,7 +130,11 @@ export function SheetColumnResize() {
       if (event.target instanceof Element && event.target.closest('[data-resize-hover="true"]')) { event.preventDefault(); event.stopPropagation(); }
     }
     prepare();
-    const observer = new MutationObserver(prepare);
+    let prepareFrame = 0;
+    const observer = new MutationObserver(records => {
+      const structural = records.some(record => [...record.addedNodes, ...record.removedNodes].some(node => node instanceof Element && (node.matches('table, thead, th[scope="col"]') || node.querySelector('table, thead'))));
+      if (structural && !prepareFrame) prepareFrame = requestAnimationFrame(() => { prepareFrame = 0; prepare(); });
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("pointerdown", down, true);
     document.addEventListener("pointermove", move, { capture: true, passive: false });
@@ -141,7 +145,7 @@ export function SheetColumnResize() {
     document.addEventListener("dblclick", edgeClick, true);
     window.addEventListener("blur", stop);
     return () => {
-      stop(); observer.disconnect(); hovered?.removeAttribute("data-resize-hover");
+      stop(); observer.disconnect(); cancelAnimationFrame(prepareFrame); hovered?.removeAttribute("data-resize-hover");
       document.removeEventListener("pointerdown", down, true);
       document.removeEventListener("pointermove", move, true);
       document.removeEventListener("pointerup", stop, true);

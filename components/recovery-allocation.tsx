@@ -305,6 +305,7 @@ export function RecoveryAllocation({
               onSelect={selectRows}
               disabled={busy}
               executive={executive}
+              adminEditable={!executive}
               onStatusSaved={(id, field, value) =>
                 setRecords((current) =>
                   current.map((row) =>

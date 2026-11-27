@@ -1,11 +1,21 @@
 "use client";
-import { useCallback, useEffect, useRef, type PointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  Fragment,
+  type PointerEvent,
+} from "react";
+import {
+  useVirtualizer,
+  defaultRangeExtractor,
+  type Range,
+} from "@tanstack/react-virtual";
+import { AllocationSheetRow } from "./allocation-sheet-row";
 import { leadColumns, type LeadValues } from "@/lib/recovery/columns";
-import { RecoveryAmountCell } from "./recovery-amount-cell";
-import { PaymentLinkCell } from "./payment-link-cell";
-import { RecoveryStatusBadge } from "./recovery-status-badge";
-import { RecoveryCommentCell } from "./recovery-comment-cell";
-import { RecoveryStatusCell } from "./recovery-status-cell";
 import { selectionRange } from "@/lib/recovery/selection";
 export type AllocationStudent = LeadValues & {
   id: string;
@@ -21,6 +31,8 @@ export function AllocationSheet({
   disabled,
   executive,
   readOnly = false,
+  adminEditable = false,
+  virtualized = false,
   onStatusSaved,
   offset = 0,
 }: {
@@ -31,14 +43,47 @@ export function AllocationSheet({
   disabled: boolean;
   executive: boolean;
   readOnly?: boolean;
+  adminEditable?: boolean;
+  virtualized?: boolean;
   offset?: number;
   onStatusSaved?: (
     id: string,
-    field: "paymentStatus" | "leadStatus" | "comments" | "remainingAmount" | "paymentLinks",
+    field:
+      | "paymentStatus"
+      | "leadStatus"
+      | "comments"
+      | "remainingAmount"
+      | "paymentLinks",
     value: string,
   ) => void;
 }) {
+  "use no memo"; // TanStack Virtual owns mutable viewport measurements.
   const sheet = useRef<HTMLDivElement>(null);
+  const scroll = useRef<HTMLDivElement>(null);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
+  const pinIndex = pinnedId ? rows.findIndex((row) => row.id === pinnedId) : -1;
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
+    count: virtualized ? rows.length : 0,
+    getScrollElement: () => scroll.current,
+    estimateSize: () => 38,
+    overscan: 10,
+    initialRect: { width: 1000, height: 600 },
+    getItemKey: (index) => rows[index].id,
+    rangeExtractor: useCallback(
+      (range: Range) => {
+        const indices = defaultRangeExtractor(range);
+        return pinIndex < 0 || indices.includes(pinIndex)
+          ? indices
+          : [...indices, pinIndex].sort((a, b) => a - b);
+      },
+      [pinIndex],
+    ),
+    enabled: virtualized,
+  });
+  const names = useMemo(
+    () => new Map(executives.map((person) => [person.id, person.name])),
+    [executives],
+  );
   const anchor = useRef(0);
   const gesture = useRef<{
     start: number;
@@ -82,7 +127,9 @@ export function AllocationSheet({
     window.addEventListener("blur", stop);
     const timer = window.setInterval(() => {
       const drag = gesture.current;
-      const scroller = sheet.current?.closest(".app-main");
+      const scroller = virtualized
+        ? scroll.current
+        : sheet.current?.closest(".app-main");
       if (!drag || !scroller) return;
       const bounds = scroller.getBoundingClientRect();
       if (drag.y < bounds.top + 65) scroller.scrollBy(0, -16);
@@ -98,7 +145,7 @@ export function AllocationSheet({
       window.removeEventListener("pointercancel", stop);
       window.removeEventListener("blur", stop);
     };
-  }, [hitRow]);
+  }, [hitRow, virtualized]);
   function start(event: PointerEvent<HTMLTableRowElement>, index: number) {
     if (
       event.target instanceof Element &&
@@ -128,6 +175,128 @@ export function AllocationSheet({
     sheet.current?.setPointerCapture(event.pointerId);
     extend(index);
   }
+  const handlers = useRef({ start, onSelect, onStatusSaved, rows, selected });
+  useLayoutEffect(() => {
+    handlers.current = { start, onSelect, onStatusSaved, rows, selected };
+  });
+  const forwardStart = useCallback(
+    (event: PointerEvent<HTMLTableRowElement>, index: number) =>
+      handlers.current.start(event, index),
+    [],
+  );
+  const forwardCheck = useCallback((index: number, checked: boolean) => {
+    anchor.current = index;
+    const current = handlers.current;
+    const id = current.rows[index].id;
+    current.onSelect(
+      checked
+        ? [...current.selected, id]
+        : current.selected.filter((value) => value !== id),
+    );
+  }, []);
+  const forwardSave = useCallback(
+    (
+      id: string,
+      field:
+        | "paymentStatus"
+        | "leadStatus"
+        | "comments"
+        | "remainingAmount"
+        | "paymentLinks",
+      value: string,
+    ) => handlers.current.onStatusSaved?.(id, field, value),
+    [],
+  );
+  useEffect(() => {
+    const element = scroll.current;
+    if (!virtualized || !element) return;
+    let frame = 0;
+    function navigate(event: Event) {
+      const { rowIndex, columnIndex } = (
+        event as CustomEvent<{ rowIndex: number; columnIndex: number }>
+      ).detail;
+      if (rowIndex < 0 || rowIndex >= rows.length) return;
+      setPinnedId(rows[rowIndex].id);
+      virtualizer.scrollToIndex(rowIndex, { align: "auto" });
+      frame = requestAnimationFrame(() => {
+        const cell = element?.querySelector<HTMLTableRowElement>(
+          `tr[data-student-index="${rowIndex}"]`,
+        )?.cells[columnIndex];
+        cell?.click();
+        cell?.focus({ preventScroll: true });
+      });
+    }
+    element.addEventListener("sheet-navigate-cell", navigate);
+    return () => {
+      element.removeEventListener("sheet-navigate-cell", navigate);
+      cancelAnimationFrame(frame);
+    };
+  }, [rows, virtualized, virtualizer]);
+  function pin(event: React.SyntheticEvent) {
+    const row = (event.target as Element).closest<HTMLElement>(
+      "[data-student-index]",
+    );
+    if (row) setPinnedId(rows[Number(row.dataset.studentIndex)]?.id || null);
+  }
+  const columnCount = Object.keys(leadColumns).length + (executive ? 1 : 2);
+  const renderRow = (
+    index: number,
+    measure?: (node: HTMLTableRowElement | null) => void,
+  ) => {
+    const row = rows[index];
+    return (
+      <AllocationSheetRow
+        key={row.id}
+        row={row}
+        index={index}
+        offset={offset}
+        selected={selectedSet.has(row.id)}
+        executive={executive}
+        readOnly={readOnly}
+        adminEditable={adminEditable}
+        disabled={disabled}
+        allocatedName={
+          row.assignedTo
+            ? names.get(row.assignedTo) || "Unavailable"
+            : "Unassigned"
+        }
+        onStart={forwardStart}
+        onChecked={forwardCheck}
+        onSaved={forwardSave}
+        measure={measure}
+      />
+    );
+  };
+  let end = 0;
+  const items = virtualized ? virtualizer.getVirtualItems() : [];
+  const renderedRows = virtualized ? (
+    <>
+      {items.map((item) => {
+        const gap = item.start - end;
+        end = item.end;
+        return (
+          <Fragment key={item.key}>
+            {gap > 0 && (
+              <tr data-sheet-spacer aria-hidden="true">
+                <td colSpan={columnCount} style={{ height: gap }} />
+              </tr>
+            )}
+            {renderRow(item.index, virtualizer.measureElement)}
+          </Fragment>
+        );
+      })}
+      {virtualizer.getTotalSize() > end && (
+        <tr data-sheet-spacer aria-hidden="true">
+          <td
+            colSpan={columnCount}
+            style={{ height: virtualizer.getTotalSize() - end }}
+          />
+        </tr>
+      )}
+    </>
+  ) : (
+    rows.map((_, index) => renderRow(index))
+  );
   return (
     <div
       className="allocation-sheet"
@@ -161,12 +330,19 @@ export function AllocationSheet({
         </label>
       )}
       <div
-        className="allocation-sheet-scroll"
+        ref={scroll}
+        onClickCapture={virtualized ? pin : undefined}
+        onFocusCapture={virtualized ? pin : undefined}
+        className={`allocation-sheet-scroll${virtualized ? " is-virtual" : ""}`}
         tabIndex={0}
         role="region"
         aria-label="Student details spreadsheet"
       >
-        <table className="allocation-grid">
+        <table
+          className="allocation-grid"
+          data-virtual-sheet={virtualized || undefined}
+          aria-rowcount={rows.length + 1}
+        >
           <colgroup>
             <col style={{ width: executive || readOnly ? 64 : 92 }} />
             {!executive && <col style={{ width: 120 }} />}
@@ -197,106 +373,7 @@ export function AllocationSheet({
               ))}
             </tr>
           </thead>
-          <tbody>
-            {rows.map((row, index) => (
-              <tr
-                key={row.id}
-                data-student-index={index}
-                aria-selected={!executive && selectedSet.has(row.id)}
-                className={selectedSet.has(row.id) ? "is-selected" : ""}
-                onPointerDown={(event) => start(event, index)}
-                onDragStart={(event) => event.preventDefault()}
-              >
-                <th scope="row">
-                  <span className="allocation-row-selector">
-                    {!executive && !readOnly && (
-                      <input
-                        type="checkbox"
-                        aria-label={`Select row ${index + 1}: ${row.studentName || "student"}`}
-                        disabled={disabled}
-                        checked={selectedSet.has(row.id)}
-                        onPointerDown={(event) => event.stopPropagation()}
-                        onChange={(event) => {
-                          anchor.current = index;
-                          onSelect(
-                            event.target.checked
-                              ? [...selected, row.id]
-                              : selected.filter((id) => id !== row.id),
-                          );
-                        }}
-                      />
-                    )}
-                    <span>{offset + index + 1}</span>
-                  </span>
-                </th>
-                {!executive && (
-                  <td
-                    title={
-                      row.assignedTo
-                        ? executives.find(
-                            (person) => person.id === row.assignedTo,
-                          )?.name || "Assigned executive (unavailable)"
-                        : "Unassigned"
-                    }
-                  >
-                    {row.assignedTo
-                      ? executives.find(
-                          (person) => person.id === row.assignedTo,
-                        )?.name || "Unavailable"
-                      : "Unassigned"}
-                  </td>
-                )}
-                {(Object.keys(leadColumns) as (keyof LeadValues)[]).map(
-                  (key) => (
-                    <td key={key} title={row[key]} data-copy-value={row[key]}>
-                      {executive &&
-                      !readOnly &&
-                      (key === "paymentStatus" || key === "leadStatus") ? (
-                        <RecoveryStatusCell
-                          id={row.id}
-                          student={row.studentName}
-                          field={key}
-                          value={row[key]}
-                          onSaved={(value, changes) => {
-                            onStatusSaved?.(row.id, key, value);
-                            if (key === "leadStatus" && changes?.paymentStatus)
-                              onStatusSaved?.(
-                                row.id,
-                                "paymentStatus",
-                                changes.paymentStatus,
-                              );
-                          }}
-                        />
-                      ) : key === "paymentStatus" || key === "leadStatus" ? (
-                        <RecoveryStatusBadge field={key} value={row[key]} />
-                      ) : key === "remainingAmount" && executive && !readOnly && row.paymentStatus.trim().toLowerCase() !== "paid" && ["discount", "pay in instalments"].includes(row.leadStatus.trim().toLowerCase()) ? <RecoveryAmountCell id={row.id} value={row[key]} onSaved={(amount, link, paymentStatus) => { onStatusSaved?.(row.id, "remainingAmount", amount); onStatusSaved?.(row.id, "paymentLinks", link); if (paymentStatus) onStatusSaved?.(row.id, "paymentStatus", paymentStatus); }}/> : key === "paymentLinks" ? (
-                        <PaymentLinkCell value={row[key]} />
-                      ) : key === "comments" && executive && !readOnly ? (
-                        <RecoveryCommentCell
-                          id={row.id}
-                          value={row.comments || ""}
-                          student={row.studentName}
-                          onSaved={(value) =>
-                            onStatusSaved?.(row.id, "comments", value)
-                          }
-                        />
-                      ) : (
-                        <span
-                          className={
-                            key === "comments"
-                              ? "recovery-comment-text"
-                              : undefined
-                          }
-                        >
-                          {row[key] || "—"}
-                        </span>
-                      )}
-                    </td>
-                  ),
-                )}
-              </tr>
-            ))}
-          </tbody>
+          <tbody>{renderedRows}</tbody>
         </table>
       </div>
     </div>

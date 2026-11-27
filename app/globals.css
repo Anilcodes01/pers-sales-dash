@@ -2477,3 +2477,9 @@ body.sheet-column-resizing, body.sheet-column-resizing * { cursor: col-resize !i
 .remaining-amount-editor input { width: 100%; min-width: 0; padding: 5px; border: 1px solid var(--border); background: var(--input); color: var(--foreground); }
 .remaining-amount-editor [data-slot="button"] { height: 28px; padding: 3px 6px; font-size: 12px; }
 .remaining-amount-editor > span { flex-basis: 100%; font-size: 11px; white-space: normal; overflow-wrap: anywhere; }
+.sheet-comment-cell > .sheet-payment-link { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.allocation-sheet-scroll.is-virtual { height: min(68dvh, 760px); min-height: 240px; overflow: auto; overflow-anchor: none; contain: layout paint; }
+.app-main .allocation-sheet-scroll.is-virtual .allocation-grid thead th { position: sticky; top: 0; z-index: 5; background: var(--muted); }
+.app-main .allocation-sheet-scroll.is-virtual .allocation-grid tbody :is(td, th) { padding-block: 6px; }
+.app-main .allocation-sheet-scroll .allocation-grid tr[data-sheet-spacer] td { max-height: none; padding: 0; border: 0; line-height: 0; font-size: 0; background: transparent; box-shadow: none; }

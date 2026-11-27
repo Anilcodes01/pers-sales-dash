@@ -5,7 +5,8 @@ import { statusColors } from "@/lib/recovery/status-colors";
 import { RecoveryStatusBadge } from "./recovery-status-badge";
 import { leadStatuses, paymentStatuses } from "@/lib/recovery/statuses";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-export function RecoveryStatusCell({ id, field, value, student, onSaved }: {
+export function RecoveryStatusCell({ id, field, value, student, onSaved, admin = false }: {
+  admin?: boolean;
   id: string; field: "paymentStatus" | "leadStatus"; value: string; student: string;
   onSaved: (value: string, changes?: { paymentStatus?: string }) => void;
 }) {
@@ -19,7 +20,7 @@ export function RecoveryStatusCell({ id, field, value, student, onSaved }: {
     setPending(next);
     setSaving(true);
     try {
-      const response = await fetch(`/api/recovery-executive/leads/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [field]: next }) });
+      const response = await fetch(`/api/${admin ? "recovery-admin" : "recovery-executive"}/leads/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [field]: next }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "Could not update status.");
       onSaved(data[field], data); toast.success("Status updated.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not update status."); }

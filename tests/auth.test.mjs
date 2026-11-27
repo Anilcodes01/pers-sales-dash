@@ -522,7 +522,9 @@ test('recovery overview denies other roles before data or privileged Auth access
 });
 test('recovery overview returns full records and filters exact CSV months including blanks', async () => {
   const queries = [];
-  const route = load('app/api/recovery-admin/overview/route.ts', { user: recoveryAdmin, admin: { listUsers: async () => ({ data: { users: [] }, error: null }) }, db: { recoveryLead: { findMany: async query => { queries.push(query); return []; } } } });
+  const database = { recoverySheetChange: { aggregate: async () => ({ _max: { id: 0n } }) }, recoveryLead: { findMany: async query => { queries.push(query); return []; } } };
+  database.$transaction = callback => callback(database);
+  const route = load('app/api/recovery-admin/overview/route.ts', { user: recoveryAdmin, admin: { listUsers: async () => ({ data: { users: [] }, error: null }) }, db: database });
   for (const suffix of ['', '?month=November', '?month=']) {
     queries.length = 0;
     const result = await route.GET(request({}, 'http://localhost:3000', `http://localhost:3000/api/recovery-admin/overview${suffix}`));
@@ -784,4 +786,92 @@ test('executive amount/link replacement is unavailable to other roles', async ()
     }, onDb: () => assert.fail('Unauthorized database access') });
     assert.equal((await route.PATCH(request({ remainingAmount: '1500' }), statusContext)).status, user ? 403 : 401);
   }
+});
+
+const adminRecoveryUpdate = 'app/api/recovery-admin/leads/[id]/route.ts';
+test('admin recovery editing denies all other roles before database access', async () => {
+  for (const user of [null, member, mainAdmin, recoveryExecutive]) {
+    const route = load(adminRecoveryUpdate, { user, onDb: () => assert.fail('Unauthorized DB access') });
+    assert.equal((await route.PATCH(request({ paymentStatus: 'paid' }), statusContext)).status, user ? 403 : 401);
+  }
+});
+test('recovery admin can update any lead status without an allocation filter', async () => {
+  let query;
+  const route = load(adminRecoveryUpdate, { user: recoveryAdmin, db: { recoveryLead: { updateMany: async args => { query = args; return { count: 1 }; } } } });
+  const result = await route.PATCH(request({ paymentStatus: 'unpaid', leadStatus: 'discount' }), statusContext);
+  assert.equal(result.status, 200); assert.equal(query.where.assignedTo, undefined);
+  assert.equal(query.data.paymentStatus, 'unpaid'); assert.equal(query.data.paidAt, null);
+  assert.equal(query.data.leadStatus, 'discount');
+});
+test('recovery admin CA marks Paid and paid timestamps survive repeated Paid saves', async () => {
+  const queries = [];
+  const route = load(adminRecoveryUpdate, { user: recoveryAdmin, db: { recoveryLead: { updateMany: async args => { queries.push({ ...args, data: { ...args.data } }); return { count: queries.length === 1 ? 0 : 1 }; } } } });
+  const result = await route.PATCH(request({ leadStatus: 'ca' }), statusContext);
+  assert.equal(result.status, 200); assert.equal(result.body.paymentStatus, 'paid');
+  assert.ok(queries[0].data.paidAt); assert.equal(queries[1].data.paidAt, undefined);
+});
+test('recovery admin can save or clear an HTTPS link with replacement-lock protection', async () => {
+  const queries = [];
+  const route = load(adminRecoveryUpdate, { user: recoveryAdmin, db: { recoveryLead: { updateMany: async args => { queries.push(args); return { count: 1 }; } } } });
+  const result = await route.PATCH(request({ paymentLinks: ' https://rzp.io/i/example ' }), statusContext);
+  assert.equal(result.status, 200); assert.equal(result.body.paymentLinks, 'https://rzp.io/i/example');
+  assert.equal(queries[0].where.OR.length, 2); assert.equal(queries[0].where.assignedTo, undefined);
+  assert.equal(queries[0].data.remainingAmount, undefined); assert.equal(queries[0].data.amountPaid, undefined);
+  assert.equal((await route.PATCH(request({ paymentLinks: '' }), statusContext)).body.paymentLinks, '');
+});
+test('admin recovery edits reject unsafe links, unknown statuses, and amount or allocation tampering', async () => {
+  for (const body of [{ paymentLinks: 'javascript:alert(1)' }, { paymentLinks: 'http://example.com' }, { paymentLinks: 'https://user:pass@example.com' }, { paymentLinks: 'not a url' }, { paymentStatus: 'unknown' }, { leadStatus: 'custom' }, { remainingAmount: '1' }, { assignedTo: member.id }]) {
+    const route = load(adminRecoveryUpdate, { user: recoveryAdmin, onDb: () => assert.fail('Invalid update accessed database') });
+    assert.equal((await route.PATCH(request(body), statusContext)).status, 400);
+  }
+});
+test('admin recovery link edits return a conflict while another update owns the lead', async () => {
+  const route = load(adminRecoveryUpdate, { user: recoveryAdmin, db: { recoveryLead: { updateMany: async () => ({ count: 0 }) } } });
+  assert.equal((await route.PATCH(request({ paymentLinks: 'https://rzp.io/i/example' }), statusContext)).status, 409);
+});
+test('admin recovery edits enforce same-origin requests', async () => {
+  const route = load(adminRecoveryUpdate, { user: recoveryAdmin, onDb: () => assert.fail('Foreign origin accessed database') });
+  assert.equal((await route.PATCH(request({ paymentStatus: 'paid' }, 'https://other.example'), statusContext)).status, 403);
+});
+
+test('unchanged overview sync avoids row downloads and the executive directory', async () => {
+  const database = { recoverySheetChange: { aggregate: async () => ({ _max: { id: 12n } }) }, recoveryLead: { findMany: async () => assert.fail('Unchanged sheet queried all rows') } };
+  database.$transaction = callback => callback(database);
+  const route = load('app/api/recovery-admin/overview/route.ts', { user: recoveryAdmin, db: database, onAdminClient: () => assert.fail('Polling loaded the executive directory') });
+  const result = await route.GET(request({}, 'http://localhost:3000', 'http://localhost:3000/api/recovery-admin/overview?month=December&cursor=12'));
+  assert.equal(result.status, 200); assert.equal(result.body.unchanged, true); assert.equal(result.body.cursor, '12');
+  assert.equal(result.body.records.length, 0);
+});
+test('overview delta handles updates, deletions, and month moves without a full reload', async () => {
+  let changesQuery; let rowsQuery;
+  const database = {
+    recoverySheetChange: {
+      aggregate: async () => ({ _max: { id: 15n } }),
+      findMany: async query => { changesQuery = query; return [{ leadId: 'updated' }, { leadId: 'deleted' }, { leadId: 'moved' }]; },
+    },
+    recoveryLead: { findMany: async query => { rowsQuery = query; return [{ id: 'updated', selectedMonth: 'December' }]; } },
+  };
+  database.$transaction = callback => callback(database);
+  const result = await load('lib/recovery/overview-sync.ts').overviewSnapshot(database, 'December', '12');
+  assert.equal(result.cursor, '15'); assert.equal(result.reset, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.removedIds)), ['deleted', 'moved']);
+  assert.equal(changesQuery.where.OR[0].oldMonth, 'December');
+  assert.equal(changesQuery.where.OR[1].newMonth, 'December');
+  assert.equal(rowsQuery.where.selectedMonth, 'December');
+  assert.equal(rowsQuery.select.linkChangeToken, undefined);
+  assert.equal(rowsQuery.select.registrationAmount, undefined);
+});
+test('sheet merge preserves row identities and touches only changed data', () => {
+  const { mergeSheetRows } = load('lib/recovery/merge-sheet-rows.ts');
+  const first = { id: 'a', createdAt: '2026-11-27', paymentStatus: 'unpaid' };
+  const second = { id: 'b', createdAt: '2026-11-26', paymentStatus: 'unpaid' };
+  const original = [first, second];
+  assert.equal(mergeSheetRows(original, []), original);
+  assert.equal(mergeSheetRows(original, [{ ...first }]), original);
+  const updated = mergeSheetRows(original, [{ ...second, paymentStatus: 'paid' }]);
+  assert.equal(updated[0], first); assert.notEqual(updated[1], second);
+  const removed = mergeSheetRows(updated, [], ['a']);
+  assert.equal(removed.length, 1); assert.equal(removed[0], updated[1]);
+  const reset = mergeSheetRows(updated, [{ ...first }], [], true);
+  assert.equal(reset.length, 1); assert.equal(reset[0], first);
 });
