@@ -118,11 +118,11 @@ test('admin writes reject another origin even for an authorized actor', async ()
   assert.equal(result.status, 403); assert.equal(touched, false);
 });
 test('user listing returns only safe summaries with pagination', async () => {
-  const result = await load(usersFile, { user: mainAdmin, admin: { listUsers: async (options) => {
+  const result = await load(usersFile, { user: mainAdmin, db: { employeeIdentifier: { findMany: async ({ where }) => { assert.deepEqual(Array.from(where.userId.in), [member.id]); return [{ userId: member.id, employeeId: 'PX001' }]; } } }, admin: { listUsers: async (options) => {
     assert.equal(options.perPage, 20); assert.equal(options.page, 2);
     return { data: { users: [{ ...member, app_metadata: { ...member.app_metadata, internal_secret: 'do-not-return' } }], nextPage: 3 }, error: null };
   } } }).GET({ nextUrl: new URL('http://localhost:3000/api/main-admin/users?page=2') });
-  assert.equal(result.body.hasMore, true); assert.equal(result.body.page, 2); assert.equal(JSON.stringify(result.body).includes('do-not-return'), false);
+  assert.equal(result.body.users[0].employeeId, 'PX001'); assert.equal(result.body.hasMore, true); assert.equal(result.body.page, 2); assert.equal(JSON.stringify(result.body).includes('do-not-return'), false);
 });
 
 test('every role receives its own dashboard after sign-in', async () => {

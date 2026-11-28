@@ -253,17 +253,18 @@ test('switching to live supersedes only a tracked test link for the same balance
 
 test('payment description preserves every approved word while substituting fee and payable amount', () => {
   const description = paymentLinkDescription({ amountMentioned: '₹4,500/-' }, 300000);
-  assert.equal(description, `Complete Your Registration
+  assert.equal(description, `COMPLETE YOUR REGISTRATION
 
 TOTAL COST OF THE PROGRAM IS 4500 AND YOU ARE PAYING RS 3000 AS Remaining REGISTRATION
 
-Note- The Transaction should be done only with the official Link Which Shows Persevex any transactions to another the company will not be Responsible for your Money
+NOTE
+The Transaction should be done only with the official Link Which Shows Persevex any transactions to another the company will not be Responsible for your Money
 
-Contact Us:
+CONTACT US:
 support@persevex.com
 +918660128339
 
-Terms & Conditions:
+TERMS & CONDITIONS:
 You agree to share information entered on this page with PERSEVEX (owner of this page) and Razorpay, adhering to applicable laws.`);
   assert.ok(description.length <= 2048);
   assert.ok(paymentLinkDescription({ amountMentioned: '3500.50' }, 10025).includes('3500.50 AND YOU ARE PAYING RS 100.25'));

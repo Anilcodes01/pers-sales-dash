@@ -220,3 +220,9 @@ model RecoveryPaymentItemChange {
   @@index([jobId, id], map: "recovery_payment_item_changes_job")
   @@map("recovery_payment_item_changes")
 }
+
+model EmployeeIdentifier {
+  userId String @id @map("user_id") @db.Uuid
+  employeeId String @unique @map("employee_id") @default(dbgenerated())
+  @@map("employee_identifiers")
+}

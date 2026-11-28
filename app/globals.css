@@ -1218,6 +1218,28 @@ body:has(.app-shell) {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 20px;
 }
+.teams-content {
+  width: 100%;
+  min-width: 0;
+  padding: 0 clamp(16px, 3vw, 40px) 40px;
+}
+.teams-content .admin-heading {
+  padding: 32px 0 20px;
+}
+.teams-content .admin-heading h1 {
+  margin: 0;
+}
+.teams-content .management-toolbar {
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.teams-content .teams-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+}
+.teams-content .team-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .team-card {
   padding: 25px;
   gap: 15px;

@@ -11,7 +11,7 @@ async function Teams() {
 }
 export default function TeamsPage() {
   return (
-    <main className="users-content">
+    <main className="teams-content">
       <section className="admin-heading">
         <h1>Teams</h1>
       </section>
