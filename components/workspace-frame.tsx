@@ -1,4 +1,5 @@
 "use client";
+import { TeamRegistrationLink } from "./team-registration-link";
 import { Dialog } from "radix-ui";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -36,16 +37,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuItem,
 } from "./ui/dropdown-menu";
-import { type Role } from "@/lib/auth/roles";
+import { roles, type Role } from "@/lib/auth/roles";
 import { dashboardPath } from "@/lib/auth/dashboard-routing";
 
 type Profile = {
+  teamId?: string;
   id: string;
   themeColor?: string;
   email: string;
   name: string;
   avatarUrl?: string;
   role: Role | null;
+  roles?: Role[];
 };
 export function WorkspaceFrame({
   profile,
@@ -106,10 +109,12 @@ export function WorkspaceFrame({
   const sidebarContent = <>
         <Brand />
         <nav aria-label="Workspace navigation" onClick={event => { if ((event.target as Element).closest("a")) setMobileMenuOpen(false); }}>
+          {(profile.roles?.length || 0) > 1 && <div className="workspace-role-links"><span className="nav-label">Switch workspace</span>{profile.roles?.map(role => <Link key={role} href={dashboardPath(role)} className={`sidebar-link${profile.role === role ? " active" : ""}`} aria-current={profile.role === role ? "page" : undefined} title={roles[role]}><LayoutDashboard size={17}/><span className="nav-label">{roles[role]}</span></Link>)}</div>}
           <Link
-            className={`sidebar-link${!isUsers && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation" && pathname !== "/recovered-leads" && pathname !== "/my-recovered-leads" ? " active" : ""}`}
+            className={`sidebar-link${!isUsers && pathname !== "/team" && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation" && pathname !== "/recovered-leads" && pathname !== "/my-recovered-leads" ? " active" : ""}`}
             aria-current={
               !isUsers &&
+              pathname !== "/team" &&
               !pathname.startsWith("/teams") &&
               !isImports &&
               pathname !== "/sales" &&
@@ -126,6 +131,7 @@ export function WorkspaceFrame({
             <LayoutDashboard size={17} />
             <span className="nav-label">Overview</span>
           </Link>
+          {profile.role === "team_leader" && <Link href="/team" className={`sidebar-link${pathname === "/team" ? " active" : ""}`} aria-current={pathname === "/team" ? "page" : undefined} title="Team" aria-label="Team"><UsersRound size={17}/><span className="nav-label">Team</span></Link>}
           {profile.role === "main_admin" && (
             <Link
               className={`sidebar-link${isUsers ? " active" : ""}`}
@@ -258,6 +264,8 @@ export function WorkspaceFrame({
             {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
           </Button>
           <div className="navbar-actions">
+            {profile.roles?.includes("main_admin") && <TeamRegistrationLink teamLead/>}
+            {profile.teamId && <TeamRegistrationLink teamId={profile.teamId}/>}
             <div className="desktop-navbar-controls">
             {profile.role === "recovery_admin" && <RecoveryPeriodControls />}
             <RecoveryStatisticsButton enabled={profile.role === "recovery_admin" || profile.role === "recovery_executive"}/>

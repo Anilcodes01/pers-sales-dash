@@ -2583,3 +2583,119 @@ body.sheet-column-resizing, body.sheet-column-resizing * { cursor: col-resize !i
 @media (prefers-reduced-motion: reduce) {
   .mobile-sidebar-drawer[data-state], .mobile-sidebar-overlay[data-state], .account-menu[data-state] { animation-duration: 1ms; }
 }
+
+.employee-search {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.employee-search input {
+  flex: 1 1 280px;
+  width: 100%;
+  max-width: 480px;
+  min-width: 0;
+}
+.employee-search p {
+  flex-shrink: 0;
+}
+@media (max-width: 650px) {
+  .employee-search input {
+    flex: 0 1 auto;
+    max-width: none;
+  }
+}
+
+.employee-role-options { border: 1px solid var(--border); padding: 12px; display: grid; gap: 10px; }
+.employee-role-options legend { padding: 0 4px; font-weight: 600; }
+.auth-form .employee-role-options label { display: flex; align-items: center; gap: 9px; }
+.employee-role-options input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); }
+.employee-role-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+.workspace-role-links { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 12px; }
+.workspace-role-links > span { display: block; padding: 6px 12px; color: var(--muted-foreground); font-size: 12px; }
+
+.employee-password-cell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+
+.employee-email { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.employee-email small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.employee-email button { flex-shrink: 0; }
+
+.people-table .employee-email { white-space: nowrap; }
+.people-table .employee-email span { overflow: hidden; text-overflow: ellipsis; }
+
+.team-registration-link { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.team-registration-link a { display: flex; align-items: center; gap: 7px; font-size: 13px; white-space: nowrap; }
+@media (max-width: 750px) {
+  .team-registration-link a span { display: none; }
+}
+
+/* Keep account management reachable while the wide employee table scrolls. */
+.app-main .people-table .employee-actions-column {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  background: var(--card);
+  box-shadow: -2px 0 0 var(--border);
+  text-align: center;
+}
+.app-main .people-table thead .employee-actions-column { z-index: 3; background: var(--muted); }
+
+/* Content pages need gutters; full-width spreadsheet overrides are separate. */
+.workspace-page {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  min-width: 0;
+  padding: 24px clamp(16px, 3vw, 40px) 40px;
+}
+.workspace-page > *,
+.workspace-page .dashboard-grid > *,
+.workspace-page .panel-heading > *,
+.sales-import-page .csv-upload-form > * { min-width: 0; }
+.workspace-page .panel-heading { flex-wrap: wrap; gap: 16px; }
+.workspace-page .workspace-card { overflow-wrap: anywhere; }
+.workspace-page .workspace-note { align-items: flex-start; }
+.workspace-page .workspace-note svg { flex-shrink: 0; margin-top: 3px; }
+.sales-import-page .csv-upload-form {
+  grid-template-columns: minmax(140px, 1fr) minmax(100px, 120px) minmax(0, 2fr) auto;
+}
+.sales-import-page .csv-upload-form input,
+.sales-import-page .csv-upload-form [data-slot="select-trigger"] { width: 100%; max-width: 100%; }
+.workspace-page [data-slot="table-container"] { min-width: 0; max-width: 100%; }
+@media (max-width: 1100px) {
+  .sales-import-page .csv-upload-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .workspace-page { padding-top: 16px; gap: 16px; }
+  .sales-import-page .csv-upload-form { grid-template-columns: minmax(0, 1fr); }
+  .workspace-page .workspace-card { padding: 18px; }
+}
+
+/* Workspace panels span their content area and share the page surface. */
+.app-main :is(.workspace-page, .teams-content, .users-content, .dashboard-content, .admin-page) {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding-inline: 0 !important;
+}
+.app-main [data-slot="card"],
+.app-main [data-slot="card"]:hover {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: 0;
+  min-width: 0;
+}
+.app-main :is(.workspace-page, .teams-content) > [data-slot="card"] {
+  width: 100%;
+  padding-inline: 16px;
+}
+.app-main .workspace-overview .dashboard-grid { grid-template-columns: minmax(0, 1fr); }
+.app-main .workspace-overview .featured-card { grid-column: auto; }
+.app-main .workspace-overview .workspace-card { width: 100%; padding-inline: 16px; }
+.app-main .workspace-overview .workspace-note { margin-inline: 16px; }
+
+.app-main .employee-overview { padding-inline: 16px !important; }
+.employee-overview > header h1 { margin: 0; font-size: clamp(22px, 3vw, 30px); font-weight: 600; overflow-wrap: anywhere; }
+.employee-overview .workspace-card { padding-inline: 0 !important; }
+.employee-overview .workspace-card:hover { transform: none; }
+.registration-share { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.registration-share input { flex: 1 1 260px; min-width: 0; }
+.registration-share button { flex-shrink: 0; }

@@ -1,7 +1,9 @@
+import { db } from "@/lib/db";
+import { TeamRegistrationLink } from "./team-registration-link";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth/session";
-import { isRole, roles, type Role } from "@/lib/auth/roles";
+import { hasRole, isRole, roles, type Role } from "@/lib/auth/roles";
 import { dashboardPath } from "@/lib/auth/dashboard-routing";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,18 +25,20 @@ import {
 export async function Dashboard({ role }: { role?: Role }) {
   const user = await currentUser(true);
   if (!user) redirect("/login");
-  const actualRole = user.app_metadata.role;
-  if ((!role && isRole(actualRole)) || (role && actualRole !== role))
+  const actualRole = role && hasRole(user.app_metadata, role) ? role : user.app_metadata.role;
+  if ((!role && isRole(actualRole)) || (role && !hasRole(user.app_metadata, role)))
     redirect(dashboardPath(actualRole));
+  if (actualRole === "main_admin") {
+    const name = typeof user.user_metadata.full_name === "string" && user.user_metadata.full_name.trim() ? user.user_metadata.full_name.trim() : user.email?.split("@")[0] || "there";
+    return <section className="workspace-page employee-overview" aria-label="Overview"><header><h1>Welcome, {name}!</h1><p className="csv-help">Manage your teams and employee accounts.</p></header><Card className="workspace-card"><CardHeader><CardTitle>Invite your team leads</CardTitle><CardDescription>Share this link with your team leads to register and select their team.</CardDescription></CardHeader><CardContent><TeamRegistrationLink teamLead expanded/></CardContent></Card><div className="management-actions"><Button asChild><Link href="/users">Manage team accounts <ArrowRight/></Link></Button><Button asChild variant="outline"><Link href="/teams">Teams <Users/></Link></Button></div></section>;
+  }
+  if (actualRole === "team_leader" || actualRole === "sales_executive") {
+    const name = typeof user.user_metadata.full_name === "string" && user.user_metadata.full_name.trim() ? user.user_metadata.full_name.trim() : user.email?.split("@")[0] || "there";
+    const membership = await db().teamMembership.findUnique({ where: { userId: user.id }, select: { teamId: true, team: { select: { name: true } } } });
+    return <section className="workspace-page employee-overview" aria-label="Overview"><header><h1>Welcome, {name}!</h1><p className="csv-help">{membership ? `You’re part of ${membership.team.name}.` : "Welcome to your workspace."}</p></header>{actualRole === "team_leader" && <Card className="workspace-card"><CardHeader><CardTitle>Grow your team</CardTitle><CardDescription>Share this link with your sales executives to register.</CardDescription></CardHeader><CardContent>{membership ? <TeamRegistrationLink teamId={membership.teamId} expanded/> : <p className="csv-help">Ask your administrator to assign your team to get its registration link.</p>}</CardContent></Card>}<div className="management-actions"><Button asChild><Link href={actualRole === "team_leader" ? "/team-imports" : "/sales-imports"}>My sales <ArrowRight/></Link></Button>{actualRole === "team_leader" && <Button asChild variant="outline"><Link href="/team">View team <Users/></Link></Button>}</div></section>;
+  }
   return (
-    <section className="dashboard-content">
-      <Badge variant="secondary">
-        {isRole(actualRole) ? roles[actualRole] : "Account"}
-      </Badge>
-      <h1>Your workspace, at a glance.</h1>
-      <p className="page-description">
-        A focused place for your team’s next steps.
-      </p>
+    <section className="workspace-page workspace-overview" aria-label="Overview">
       <div className="dashboard-grid">
         <Card className="workspace-card featured-card">
           <CardHeader>

@@ -23,7 +23,7 @@ export async function adminSalesOptions() {
     db().salesRecord.findMany({ distinct: ["ownerId"], select: { ownerId: true } }),
   ]);
   const ownerIds = new Set(owners.map(row => row.ownerId));
-  return { teams, months: periods.map(row => row.reportingMonth.toISOString().slice(0, 7)), people: people.filter(person => person.role === "sales_executive" || person.role === "team_leader" || ownerIds.has(person.id)).sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email)) };
+  return { teams, months: periods.map(row => row.reportingMonth.toISOString().slice(0, 7)), people: people.filter(person => person.roles.includes("sales_executive") || person.roles.includes("team_leader") || ownerIds.has(person.id)).sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email)) };
 }
 export async function adminSales(params: URLSearchParams) {
   const { admin } = await adminContext();

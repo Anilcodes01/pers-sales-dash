@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import { useEffect, useState, type FormEvent } from "react";
@@ -32,7 +33,7 @@ export function AuthForm({ configured }: { configured: boolean }) {
     
     <Button className="full" disabled={busy || !configured}>{busy ? <><Loader2 className="animate-spin"/> Signing in…</> : <>Sign in <ArrowRight/></>}</Button>
     <Separator/>
-    <p className="form-foot">Need an account or a password reset?<br/>Contact your main administrator.</p>
+    <p className="form-foot">Need an account or a password reset?<br/>Contact your main administrator.<br/><Link href="/team-lead/register">Team lead registration</Link></p>
   </form>;
 }
 

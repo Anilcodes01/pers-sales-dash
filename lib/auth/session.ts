@@ -16,6 +16,7 @@ export async function currentUser(readOnly = false) {
     client.auth.getClaims(),
   ]);
   if (error || !data.user) return null;
+  if (data.user.app_metadata.access_restricted === true || (data.user.banned_until && Date.parse(data.user.banned_until) > Date.now())) return null;
   if (claimError || !claims?.claims) return null;
   const tokenMetadata = claims.claims.app_metadata as Record<string, unknown> | undefined;
   if (data.user.app_metadata.credentials_version !== tokenMetadata?.credentials_version) return null;

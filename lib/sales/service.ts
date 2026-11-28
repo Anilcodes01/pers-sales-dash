@@ -1,3 +1,4 @@
+import { hasRole } from "@/lib/auth/roles";
 import "server-only";
 import { currentUser } from "@/lib/auth/session";
 import { AccessError } from "@/lib/auth/admin-access";
@@ -7,7 +8,7 @@ export type SalesRole = "sales_executive" | "team_leader";
 export async function requireSalesUser(role: SalesRole) {
   const user = await currentUser();
   if (!user) throw new AccessError(401, "Sign in to continue.");
-  if (user.app_metadata.role !== role) throw new AccessError(403, "You do not have access to this sales workspace.");
+  if (!hasRole(user.app_metadata, role)) throw new AccessError(403, "You do not have access to this sales workspace.");
   return user;
 }
 export async function importSales(ownerId: string, month: Date, filename: string, rows: CsvRow[]) {

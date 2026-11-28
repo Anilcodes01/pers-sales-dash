@@ -77,19 +77,19 @@ test('unauthenticated and non-admin requests never construct privileged client',
 });
 test('account creation confirms email and stores only trusted role metadata', async () => {
   let sent;
-  const result = await load(usersFile, { user: mainAdmin, admin: { createUser: async (input) => { sent = input; return { data: { user: { ...member, app_metadata: input.app_metadata } }, error: null }; } } }).POST(request({ name: '  Ankit   Sharma  ', email: member.email, password: 'Abc123', role: 'recovery_executive' }));
+  const result = await load(usersFile, { user: mainAdmin, db: { $executeRaw: async () => 1 }, admin: { createUser: async (input) => { sent = input; return { data: { user: { ...member, app_metadata: input.app_metadata } }, error: null }; } } }).POST(request({ name: '  Ankit   Sharma  ', email: member.email, password: 'Abc123', role: 'recovery_executive' }));
   assert.equal(result.status, 201); assert.equal(sent.password, 'Abc123'); assert.equal(sent.email_confirm, true); assert.equal(sent.user_metadata.full_name, 'Ankit Sharma'); assert.equal(sent.app_metadata.role, 'recovery_executive'); assert.equal(sent.app_metadata.created_by, mainAdmin.id);
   assert.equal(JSON.stringify(result.body).includes('Abc123'), false); assert.equal(JSON.stringify(sent.app_metadata).includes('password'), false);
 });
 test('invalid roles and short passwords never reach createUser', async () => {
   let touched = false;
-  const api = load(usersFile, { user: mainAdmin, admin: { createUser: async () => { touched = true; } } });
+  const api = load(usersFile, { user: mainAdmin, db: { $executeRaw: async () => 1 }, admin: { createUser: async () => { touched = true; } } });
   for (const body of [{ email: member.email, password: 'long-password-123', role: 'owner' }, { email: member.email, password: 'short', role: 'sales_executive' }]) assert.equal((await api.POST(request(body))).status, 400);
   assert.equal(touched, false);
 });
 test('admin password reset changes credential version without returning the password', async () => {
   let sent;
-  const result = await load(updateFile, { user: mainAdmin, admin: { getUserById: async () => ({ data: { user: member } }), updateUserById: async (_id, input) => { sent = input; return { data: { user: { ...member, app_metadata: input.app_metadata } } }; } } }).PATCH(request({ password: 'a-new-password-123' }), { params: Promise.resolve({ id: member.id }) });
+  const result = await load(updateFile, { user: mainAdmin, db: { $executeRaw: async () => 1 }, admin: { getUserById: async () => ({ data: { user: member } }), updateUserById: async (_id, input) => { sent = input; return { data: { user: { ...member, app_metadata: input.app_metadata } } }; } } }).PATCH(request({ password: 'a-new-password-123' }), { params: Promise.resolve({ id: member.id }) });
   assert.equal(result.status, 200); assert.equal(sent.password, 'a-new-password-123'); assert.equal(sent.app_metadata.credentials_version, 'new-version'); assert.equal(sent.app_metadata.role, 'sales_executive'); assert.equal(JSON.stringify(result.body).includes('a-new-password-123'), false);
 });
 test('existing main admin cannot be demoted', async () => {
@@ -117,12 +117,35 @@ test('admin writes reject another origin even for an authorized actor', async ()
   const result = await load(usersFile, { user: mainAdmin, onAdminClient: () => { touched = true; } }).POST(request({}, 'https://other.example'));
   assert.equal(result.status, 403); assert.equal(touched, false);
 });
-test('user listing returns only safe summaries with pagination', async () => {
-  const result = await load(usersFile, { user: mainAdmin, db: { employeeIdentifier: { findMany: async ({ where }) => { assert.deepEqual(Array.from(where.userId.in), [member.id]); return [{ userId: member.id, employeeId: 'PX001' }]; } } }, admin: { listUsers: async (options) => {
-    assert.equal(options.perPage, 20); assert.equal(options.page, 2);
-    return { data: { users: [{ ...member, app_metadata: { ...member.app_metadata, internal_secret: 'do-not-return' } }], nextPage: 3 }, error: null };
-  } } }).GET({ nextUrl: new URL('http://localhost:3000/api/main-admin/users?page=2') });
-  assert.equal(result.body.users[0].employeeId, 'PX001'); assert.equal(result.body.hasMore, true); assert.equal(result.body.page, 2); assert.equal(JSON.stringify(result.body).includes('do-not-return'), false);
+test('main admin employee list loads all provider pages and preloads passwords for instant copying', async () => {
+  const second = { ...member, id: mainAdmin.id };
+  const pages = [];
+  const result = await load(usersFile, { user: mainAdmin, db: { employeeIdentifier: { findMany: async ({ where }) => {
+    assert.deepEqual(Array.from(where.userId.in), [member.id, second.id]);
+    return [{ userId: member.id, employeeId: 'PX001', decryptedPassword: 'saved-copy-password' }];
+  } } }, admin: { listUsers: async ({ page, perPage }) => {
+    pages.push(page); assert.equal(perPage, 1000);
+    return { data: { users: page === 1 ? [{ ...member, app_metadata: { ...member.app_metadata, internal_secret: 'do-not-return' } }] : [second], nextPage: page === 1 ? 2 : null }, error: null };
+  } } }).GET();
+  assert.deepEqual(pages, [1, 2]);
+  assert.equal(result.body.users.length, 2);
+  assert.equal(result.body.users[0].employeeId, 'PX001');
+  assert.equal(result.body.users[0].savedPassword, 'saved-copy-password');
+  assert.equal(result.body.users[1].savedPassword, null);
+  assert.equal(result.body.users[1].employeeId, null);
+  assert.equal(JSON.stringify(result.body).includes('do-not-return'), false);
+});
+
+test('employee CSV includes the complete list, escapes cells and excludes credentials', () => {
+  const { employeeCsv } = load('lib/auth/employee-export.ts');
+  const records = Array.from({ length: 53 }, (_, index) => ({ employeeId: `PX${index}`, name: index === 0 ? '=FORMULA' : 'Name, "Quoted"', email: 'user@example.com', role: 'Sales executive', team: 'Nova', password: 'never-export' }));
+  const csv = employeeCsv(records);
+  const rows = parse(csv);
+  assert.equal(rows.length, 54);
+  assert.deepEqual(rows[0], ['Employee ID', 'Name', 'Email', 'Role', 'Team']);
+  assert.equal(rows[1][1], "'=FORMULA");
+  assert.equal(rows[2][1], 'Name, "Quoted"');
+  assert.equal(csv.includes('never-export'), false);
 });
 
 test('every role receives its own dashboard after sign-in', async () => {
@@ -209,7 +232,7 @@ test('admin can update a name without changing role or password', async () => {
 });
 test('invalid user names are rejected before account creation', async () => {
   let called = false;
-  const api = load(usersFile, { user: mainAdmin, admin: { createUser: async () => { called = true; } } });
+  const api = load(usersFile, { user: mainAdmin, db: { $executeRaw: async () => 1 }, admin: { createUser: async () => { called = true; } } });
   for (const name of ['', '   ', 'x'.repeat(101), 123]) assert.equal((await api.POST(request({ name, email: member.email, role: 'sales_executive', password: 'Abc123' }))).status, 400);
   assert.equal(called, false);
 });
@@ -1046,4 +1069,211 @@ test('navbar recovery uses current recovery month counts and handles an empty ba
     assert.equal(queries[0].where.selectedMonth, load('lib/recovery/month.ts').currentRecoveryMonth());
     assert.equal(queries[1].where.paymentStatus.equals, 'paid');
   }
+});
+
+test('admin restricts and restores access while rotating old sessions and preserving role', async () => {
+  for (const restricted of [true, false]) {
+    let sent;
+    const result = await load(updateFile, { user: mainAdmin, admin: {
+      getUserById: async () => ({ data: { user: member } }),
+      updateUserById: async (_id, input) => { sent = input; return { data: { user: { ...member, app_metadata: input.app_metadata } } }; },
+    } }).PATCH(request({ restricted }), { params: Promise.resolve({ id: member.id }) });
+    assert.equal(result.status, 200);
+    assert.equal(sent.ban_duration, restricted ? '876000h' : 'none');
+    assert.equal(sent.app_metadata.access_restricted, restricted);
+    assert.equal(sent.app_metadata.credentials_version, 'new-version');
+    assert.equal(sent.app_metadata.role, member.app_metadata.role);
+    assert.equal(Object.hasOwn(sent, 'password'), false);
+    assert.equal(result.body.user.restricted, restricted);
+  }
+});
+test('main admin restriction and invalid access flags are rejected', async () => {
+  for (const [target, restricted] of [[mainAdmin, true], [member, 'yes']]) {
+    const result = await load(updateFile, { user: mainAdmin, admin: { getUserById: async () => ({ data: { user: target } }) } }).PATCH(request({ restricted }), { params: Promise.resolve({ id: target.id }) });
+    assert.equal(result.status, 400);
+  }
+});
+test('restricted employee sessions are rejected even with matching token versions', async () => {
+  const user = { ...member, app_metadata: { ...member.app_metadata, access_restricted: true } };
+  const client = { auth: { getUser: async () => ({ data: { user } }), getClaims: async () => ({ data: { claims: { app_metadata: user.app_metadata } } }) } };
+  assert.equal(await load('lib/auth/session.ts', { client, realSession: true }).currentUser(), null);
+});
+test('restricted login is signed out and cannot receive a dashboard redirect', async () => {
+  let signedOut = false;
+  const client = { auth: { signInWithPassword: async () => ({ data: { user: { ...member, app_metadata: { ...member.app_metadata, access_restricted: true } } } }), signOut: async () => { signedOut = true; } } };
+  const result = await load(authFile, { client }).POST(request({ email: member.email, password: 'password' }), context('login'));
+  assert.equal(result.status, 403); assert.equal(signedOut, true); assert.equal(result.body.redirect, undefined);
+});
+
+test('multiple roles grant both workspaces without granting unassigned admin access', async () => {
+  const user = { ...member, app_metadata: { role: 'sales_executive', roles: ['sales_executive', 'recovery_executive'] } };
+  assert.equal((await load('lib/sales/service.ts', { user }).requireSalesUser('sales_executive')).id, user.id);
+  assert.equal((await load('lib/recovery/allocation.ts', { user }).requireRecoveryRole('recovery_executive')).id, user.id);
+  await assert.rejects(() => load('lib/recovery/allocation.ts', { user }).requireRecoveryRole('recovery_admin'), /access/);
+  await assert.rejects(() => load('lib/auth/admin-access.ts', { user }).requireMainAdmin(), /main admin/);
+});
+test('admin assigns multiple roles, preserves the default and supports removing a role', async () => {
+  for (const assigned of [['sales_executive', 'recovery_executive'], ['recovery_executive']]) {
+    let sent;
+    const result = await load(updateFile, { user: mainAdmin, admin: {
+      getUserById: async () => ({ data: { user: member } }),
+      updateUserById: async (_id, input) => { sent = input; return { data: { user: { ...member, app_metadata: input.app_metadata } } }; },
+    } }).PATCH(request({ roles: assigned }), { params: Promise.resolve({ id: member.id }) });
+    assert.equal(result.status, 200);
+    assert.deepEqual(Array.from(sent.app_metadata.roles), assigned);
+    assert.equal(sent.app_metadata.role, assigned[0]);
+    assert.deepEqual(Array.from(result.body.user.roles), assigned);
+  }
+});
+test('invalid role lists and removal of main admin membership are rejected', async () => {
+  for (const [user, assigned] of [[member, []], [member, ['sales_executive', 'owner']], [member, ['sales_executive', 'sales_executive']], [mainAdmin, ['sales_executive']]]) {
+    const result = await load(updateFile, { user: mainAdmin, admin: { getUserById: async () => ({ data: { user } }) } }).PATCH(request({ roles: assigned }), { params: Promise.resolve({ id: user.id }) });
+    assert.equal(result.status, 400);
+  }
+});
+test('recovery directory includes dual-role employees and excludes restricted accounts', async () => {
+  const dual = { ...member, user_metadata: { full_name: 'Dual employee' }, app_metadata: { role: 'sales_executive', roles: ['sales_executive', 'recovery_executive'] } };
+  const users = [dual, { ...dual, id: mainAdmin.id, app_metadata: { ...dual.app_metadata, access_restricted: true } }];
+  const result = await load('lib/recovery/allocation.ts', { admin: { listUsers: async () => ({ data: { users } }) } }).recoveryExecutives(true);
+  assert.equal(result.length, 1); assert.equal(result[0].id, member.id);
+});
+test('explicit role membership overrides a removed legacy role', () => {
+  const { hasRole, assignedRoles } = load('lib/auth/roles.ts');
+  const metadata = { role: 'sales_executive', roles: ['recovery_executive'] };
+  assert.equal(hasRole(metadata, 'sales_executive'), false);
+  assert.equal(hasRole(metadata, 'recovery_executive'), true);
+  assert.deepEqual(Array.from(assignedRoles({ role: 'sales_executive' })), ['sales_executive']);
+});
+test('new account creation accepts both sales and recovery executive roles', async () => {
+  let sent;
+  const result = await load(usersFile, { user: mainAdmin, db: { $executeRaw: async () => 1 }, admin: { createUser: async input => { sent = input; return { data: { user: { ...member, app_metadata: input.app_metadata } } }; } } }).POST(request({ name: 'Dual employee', email: member.email, password: 'password123', roles: ['sales_executive', 'recovery_executive'] }));
+  assert.equal(result.status, 201);
+  assert.deepEqual(Array.from(sent.app_metadata.roles), ['sales_executive', 'recovery_executive']);
+});
+
+test('employee deletion requires confirmation and a main admin', async () => {
+  let deleted = false;
+  const admin = { getUserById: async () => ({ data: { user: member } }), deleteUser: async id => { assert.equal(id, member.id); deleted = true; return { error: null }; } };
+  const params = { params: Promise.resolve({ id: member.id }) };
+  assert.equal((await load(updateFile, { user: mainAdmin, admin }).DELETE(request({}), params)).status, 400);
+  assert.equal(deleted, false);
+  assert.equal((await load(updateFile, { user: member, admin }).DELETE(request({ confirm: true }), params)).status, 403);
+  assert.equal(deleted, false);
+  const result = await load(updateFile, { user: mainAdmin, admin }).DELETE(request({ confirm: true }), params);
+  assert.equal(result.body.deleted, true); assert.equal(deleted, true);
+});
+test('employee deletion protects main admins and records linked through foreign keys', async () => {
+  const params = id => ({ params: Promise.resolve({ id }) });
+  const protectedResult = await load(updateFile, { user: mainAdmin, admin: { getUserById: async () => ({ data: { user: mainAdmin } }) } }).DELETE(request({ confirm: true }), params(mainAdmin.id));
+  assert.equal(protectedResult.status, 400);
+  const linkedResult = await load(updateFile, { user: mainAdmin, admin: { getUserById: async () => ({ data: { user: member } }), deleteUser: async () => ({ error: { message: 'foreign key constraint' } }) } }).DELETE(request({ confirm: true }), params(member.id));
+  assert.equal(linkedResult.status, 409); assert.match(linkedResult.body.error, /restricted instead/);
+});
+test('cross-origin employee deletion is blocked before privileged access', async () => {
+  let touched = false;
+  const result = await load(updateFile, { user: mainAdmin, onAdminClient: () => { touched = true; } }).DELETE(request({ confirm: true }, 'https://other.example'), { params: Promise.resolve({ id: member.id }) });
+  assert.equal(result.status, 403); assert.equal(touched, false);
+});
+
+test('password persistence verifies the current Auth hash using bound parameters', async () => {
+  let parameters;
+  const api = load('lib/auth/employee-password.ts', { db: { $executeRaw: async (sql, ...values) => { assert.match(sql.join('?'), /extensions\.crypt/); parameters = values; return 1; } } });
+  await api.storeEmployeePassword(member.id, 'test-password');
+  assert.deepEqual(parameters, ['test-password', member.id, 'test-password']);
+  await assert.rejects(() => load('lib/auth/employee-password.ts', { db: { $executeRaw: async () => 0 } }).storeEmployeePassword(member.id, 'stale'), /could not be saved/);
+});
+test('password reveal rejects non-admins before reading passwords', async () => {
+  for (const user of [undefined, member]) {
+    let read = false;
+    const result = await load('app/api/main-admin/users/[id]/password/route.ts', { user, db: { $queryRaw: async () => { read = true; return []; } } }).GET({}, { params: Promise.resolve({ id: member.id }) });
+    assert.equal(result.status, user ? 403 : 401); assert.equal(read, false);
+  }
+});
+test('main admin can reveal a saved password and unknown passwords return null', async () => {
+  for (const password of ['saved-password', null]) {
+    const result = await load('app/api/main-admin/users/[id]/password/route.ts', { user: mainAdmin, db: { $queryRaw: async sql => { assert.match(sql.join('?'), /extensions\.crypt/); return [{ decrypted_password: password }]; } } }).GET({}, { params: Promise.resolve({ id: member.id }) });
+    assert.equal(result.body.password, password);
+  }
+});
+
+const registrationFile = 'app/api/register/[kind]/route.ts';
+const registrationTeam = '33333333-3333-4333-8333-333333333333';
+test('public registration fixes the role and assigns the selected team before sign-in', async () => {
+  for (const [kind, role, destination] of [['team-lead', 'team_leader', '/team-dashboard'], ['employee', 'sales_executive', '/sales-dashboard']]) {
+    let created, membership, signedIn;
+    const result = await load(registrationFile, {
+      db: { $queryRaw: async () => [{ attempts: 1 }], $executeRaw: async () => 1, team: { findUnique: async ({ where }) => { assert.equal(where.id, registrationTeam); return { id: registrationTeam }; } }, teamMembership: { create: async ({ data }) => { membership = data; } } },
+      admin: { createUser: async input => { created = input; return { data: { user: member } }; } },
+      client: { auth: { signInWithPassword: async input => { signedIn = input; return { error: null }; } } },
+    }).POST(request({ name: ' New Employee ', email: ' NEW@example.com ', password: 'mangokite123', teamId: registrationTeam, role: 'main_admin', roles: ['main_admin'] }), { params: Promise.resolve({ kind }) });
+    assert.equal(result.status, 201); assert.equal(result.body.redirect, destination);
+    assert.equal(created.app_metadata.role, role); assert.deepEqual(Array.from(created.app_metadata.roles), [role]);
+    assert.equal(created.email, 'new@example.com'); assert.equal(created.email_confirm, true);
+    assert.equal(membership.userId, member.id); assert.equal(membership.teamId, registrationTeam);
+    assert.equal(signedIn.email, created.email); assert.equal(JSON.stringify(result.body).includes('mangokite123'), false);
+  }
+});
+test('public registration rejects foreign origins, missing teams and repeated attempts', async () => {
+  const body = { name: 'Employee', email: member.email, password: 'password123', teamId: registrationTeam };
+  const context = { params: Promise.resolve({ kind: 'employee' }) };
+  let created = false;
+  const admin = { createUser: async () => { created = true; } };
+  const foreign = await load(registrationFile, { admin }).POST(request(body, 'https://other.example'), context);
+  assert.equal(foreign.status, 403);
+  const missing = await load(registrationFile, { admin, db: { $queryRaw: async () => [{ attempts: 1 }], team: { findUnique: async () => null } } }).POST(request(body), context);
+  assert.equal(missing.status, 404);
+  const limited = await load(registrationFile, { admin, db: { $queryRaw: async () => [{ attempts: 101 }] } }).POST(request(body), context);
+  assert.equal(limited.status, 429); assert.equal(created, false);
+});
+test('failed team setup removes the new account instead of leaving an unassigned employee', async () => {
+  let deleted;
+  const result = await load(registrationFile, { db: { $queryRaw: async () => [{ attempts: 1 }], team: { findUnique: async () => ({ id: registrationTeam }) }, teamMembership: { create: async () => { throw new Error('team removed'); } } }, admin: { createUser: async () => ({ data: { user: member } }), deleteUser: async id => { deleted = id; return { error: null }; } } }).POST(request({ name: 'Employee', email: member.email, password: 'password123', teamId: registrationTeam }), { params: Promise.resolve({ kind: 'employee' }) });
+  assert.equal(result.status, 503); assert.equal(deleted, member.id);
+});
+test('duplicate registration does not change the existing account or team', async () => {
+  const result = await load(registrationFile, { db: { $queryRaw: async () => [{ attempts: 1 }], team: { findUnique: async () => ({ id: registrationTeam }) } }, admin: { createUser: async () => ({ data: {}, error: { status: 422 } }) } }).POST(request({ name: 'Employee', email: member.email, password: 'password123', teamId: registrationTeam }), { params: Promise.resolve({ kind: 'team-lead' }) });
+  assert.equal(result.status, 409);
+});
+test('successful registration with an unavailable sign-in falls back to the login page', async () => {
+  const result = await load(registrationFile, { db: { $queryRaw: async () => [{ attempts: 1 }], $executeRaw: async () => 1, team: { findUnique: async () => ({ id: registrationTeam }) }, teamMembership: { create: async () => {} } }, admin: { createUser: async () => ({ data: { user: member } }) }, client: { auth: { signInWithPassword: async () => ({ error: { status: 503 } }) } } }).POST(request({ name: 'Employee', email: member.email, password: 'password123', teamId: registrationTeam }), { params: Promise.resolve({ kind: 'employee' }) });
+  assert.equal(result.status, 201); assert.equal(result.body.redirect, '/login');
+});
+
+test('main admin can update employee email and invalidate previous login sessions', async () => {
+  let sent;
+  const result = await load(updateFile, { user: mainAdmin, admin: { getUserById: async () => ({ data: { user: member } }), updateUserById: async (_id, input) => { sent = input; return { data: { user: { ...member, email: input.email, app_metadata: input.app_metadata } } }; } } }).PATCH(request({ email: ' NEW@example.com ' }), { params: Promise.resolve({ id: member.id }) });
+  assert.equal(result.status, 200); assert.equal(sent.email, 'new@example.com'); assert.equal(sent.email_confirm, true); assert.equal(sent.app_metadata.credentials_version, 'new-version'); assert.equal(sent.app_metadata.role, member.app_metadata.role);
+});
+test('invalid employee email changes are rejected before the update', async () => {
+  const result = await load(updateFile, { user: mainAdmin, admin: { getUserById: async () => ({ data: { user: member } }) } }).PATCH(request({ email: 'not-an-email' }), { params: Promise.resolve({ id: member.id }) });
+  assert.equal(result.status, 400);
+});
+
+test('team roster is restricted to authenticated team leads before any database reads', async () => {
+  for (const user of [undefined, member, mainAdmin]) {
+    let touched = false;
+    const result = await load('app/api/team-lead/team/route.ts', { user, onDb: () => { touched = true; } }).GET();
+    assert.equal(result.status, user ? 403 : 401); assert.equal(touched, false);
+  }
+});
+test('team roster uses only the signed-in lead membership and excludes sensitive fields', async () => {
+  const leader = { ...member, app_metadata: { role: 'sales_executive', roles: ['sales_executive', 'team_leader'] } };
+  const db = {
+    teamMembership: { findUnique: async ({ where }) => { assert.equal(where.userId, leader.id); return { teamId: registrationTeam, team: { name: 'Nova' } }; } },
+    $queryRaw: async (sql, ...values) => {
+      assert.deepEqual(values, [registrationTeam]);
+      assert.match(sql.join('?'), /WHERE m\.team_id =/); assert.doesNotMatch(sql.join('?'), /password|token|u\.\*/i);
+      return [{ id: mainAdmin.id, name: 'Employee', email: 'employee@example.com', employee_id: 'PX100', role: 'sales_executive', roles: ['sales_executive', 'recovery_executive'], last_sign_in_at: new Date('2026-11-28T08:00:00Z'), password: 'not-returned' }];
+    },
+  };
+  const result = await load('app/api/team-lead/team/route.ts', { user: leader, db }).GET();
+  assert.equal(result.body.team.name, 'Nova'); assert.equal(result.body.employees[0].employeeId, 'PX100');
+  assert.equal(result.body.employees[0].lastSignInAt, '2026-11-28T08:00:00.000Z');
+  assert.deepEqual(Array.from(result.body.employees[0].roles), ['sales_executive', 'recovery_executive']);
+  assert.equal(JSON.stringify(result.body).includes('not-returned'), false);
+});
+test('team leads without a membership see an empty roster without reading other teams', async () => {
+  const leader = { ...member, app_metadata: { role: 'team_leader' } };
+  const result = await load('app/api/team-lead/team/route.ts', { user: leader, db: { teamMembership: { findUnique: async () => null } } }).GET();
+  assert.equal(result.body.team, null); assert.equal(result.body.employees.length, 0);
 });

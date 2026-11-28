@@ -1,3 +1,4 @@
+import { hasRole } from "@/lib/auth/roles";
 import type { NextRequest } from "next/server";
 import { randomUUID } from "node:crypto";
 import { currentUser } from "@/lib/auth/session";
@@ -11,7 +12,7 @@ import { invalidateRecoveryCache } from "@/lib/recovery/cache";
 async function requireRecoveryAdmin() {
   const user = await currentUser();
   if (!user) throw new AccessError(401, "Sign in to continue.");
-  if (user.app_metadata.role !== "recovery_admin") throw new AccessError(403, "Only recovery admins can access recovery leads.");
+  if (!hasRole(user.app_metadata, "recovery_admin")) throw new AccessError(403, "Only recovery admins can access recovery leads.");
   return user;
 }
 export async function GET(request: NextRequest) {

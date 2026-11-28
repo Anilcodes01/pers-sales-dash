@@ -1,3 +1,4 @@
+import { hasRole } from "@/lib/auth/roles";
 import "server-only";
 import { currentUser } from "@/lib/auth/session";
 import { AccessError } from "@/lib/auth/admin-access";
@@ -7,7 +8,7 @@ import { cachedRecovery } from "./cache";
 export async function requireRecoveryRole(role: "recovery_admin" | "recovery_executive") {
   const user = await currentUser();
   if (!user) throw new AccessError(401, "Sign in to continue.");
-  if (user.app_metadata.role !== role) throw new AccessError(403, "You do not have access to this recovery workspace.");
+  if (!hasRole(user.app_metadata, role)) throw new AccessError(403, "You do not have access to this recovery workspace.");
   return user;
 }
 export function recoveryExecutives(fresh = false) {
@@ -20,7 +21,7 @@ async function loadRecoveryExecutives() {
     const { data, error } = await admin.listUsers({ page, perPage: 1000 });
     if (error) throw new AccessError(502, "Could not load recovery executives.");
     for (const user of data.users) {
-      if (user.app_metadata.role === "recovery_executive" && (!user.banned_until || new Date(user.banned_until).getTime() < Date.now())) executives.push({ id: user.id, name: user.user_metadata?.full_name || user.email || "Recovery executive", email: user.email || "" });
+      if (hasRole(user.app_metadata, "recovery_executive") && user.app_metadata.access_restricted !== true && (!user.banned_until || new Date(user.banned_until).getTime() < Date.now())) executives.push({ id: user.id, name: user.user_metadata?.full_name || user.email || "Recovery executive", email: user.email || "" });
     }
     if (data.users.length < 1000) break;
   }
@@ -36,7 +37,7 @@ export async function allocateLeads(actorId: string, body: Record<string, unknow
   if (assignedTo !== null) {
     if (typeof assignedTo !== "string" || !uuid.test(assignedTo)) throw new AccessError(400, "Select a recovery executive.");
     const { data, error } = await createAdminClient().auth.admin.getUserById(assignedTo);
-    if (error || !data.user || data.user.app_metadata.role !== "recovery_executive" || (data.user.banned_until && new Date(data.user.banned_until).getTime() > Date.now())) throw new AccessError(400, "Choose an active recovery executive.");
+    if (error || !data.user || !hasRole(data.user.app_metadata, "recovery_executive") || data.user.app_metadata.access_restricted === true || (data.user.banned_until && new Date(data.user.banned_until).getTime() > Date.now())) throw new AccessError(400, "Choose an active recovery executive.");
   }
   return db().$transaction(async tx => {
     const where = { id: { in: ids as string[] }, selectedMonth: month };

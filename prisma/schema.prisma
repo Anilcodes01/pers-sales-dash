@@ -222,6 +222,7 @@ model RecoveryPaymentItemChange {
 }
 
 model EmployeeIdentifier {
+  decryptedPassword String? @map("decrypted_password")
   userId String @id @map("user_id") @db.Uuid
   employeeId String @unique @map("employee_id") @default(dbgenerated())
   @@map("employee_identifiers")

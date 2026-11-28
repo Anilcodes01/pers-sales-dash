@@ -1,3 +1,4 @@
+import { hasRole } from "@/lib/auth/roles";
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth/session";
@@ -7,7 +8,7 @@ export const metadata = { title: "Manage accounts | Collective" };
 async function AdminUsers() {
   const user = await currentUser(true);
   if (!user) redirect("/login");
-  if (user.app_metadata.role !== "main_admin") redirect("/dashboard");
+  if (!hasRole(user.app_metadata, "main_admin")) redirect("/dashboard");
   return (
     <UserManagement currentUserId={user.id} configured={adminConfigured()} />
   );
