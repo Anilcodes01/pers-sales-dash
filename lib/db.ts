@@ -2,7 +2,7 @@ import "server-only";
 import { runtimeDatabaseUrl } from "./database-url";
 import { PrismaClient } from "@prisma/client";
 import { AccessError } from "@/lib/auth/admin-access";
-const CLIENT_SCHEMA_VERSION = "employee-passwords-v10";
+const CLIENT_SCHEMA_VERSION = "status-gated-recovery-v12";
 const globalDb = globalThis as unknown as { prisma?: PrismaClient; url?: string; schemaVersion?: string };
 export function databaseConfigured() { return Boolean(process.env.DATABASE_URL); }
 export function db() {

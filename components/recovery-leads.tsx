@@ -23,7 +23,7 @@ import {
   TableCell,
 } from "./ui/table";
 type Row = LeadValues & { id?: string; createdAt?: string; updatedAt?: string };
-function LeadsTable({ rows, saved = false, onSaved }: { rows: Row[]; saved?: boolean; onSaved?: (id: string, field: keyof LeadValues, value: string) => void }) {
+export function LeadsTable({ rows, saved = false, onSaved }: { rows: Row[]; saved?: boolean; onSaved?: (id: string, field: keyof LeadValues, value: string) => void }) {
   return (
     <Table className="people-table sales-table">
       <TableHeader>

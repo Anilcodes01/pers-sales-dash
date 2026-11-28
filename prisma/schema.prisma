@@ -82,6 +82,9 @@ model RecoveryLead {
   studentEmail String @map("student_email") @db.Text
   studentCollegeEmail String @map("student_college_email") @db.Text
   executiveName String @map("executive_name") @db.Text
+  executiveId String @default("") @map("executive_id") @db.Text
+  salesStatusChangedAt DateTime? @map("sales_status_changed_at") @db.Timestamptz(6)
+  salesAssignedTo String @default("") @map("sales_assigned_to") @db.Text
   amountMentioned String @map("amount_mentioned") @db.Text
   registrationAmount String @default("") @map("registration_amount") @db.Text
   amountPaid String @default("") @map("amount_paid") @db.Text

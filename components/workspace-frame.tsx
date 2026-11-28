@@ -7,6 +7,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   Menu,
+  ArrowLeftRight,
+  Check,
   X,
   PanelLeftClose,
   PanelLeftOpen,
@@ -109,11 +111,12 @@ export function WorkspaceFrame({
   const sidebarContent = <>
         <Brand />
         <nav aria-label="Workspace navigation" onClick={event => { if ((event.target as Element).closest("a")) setMobileMenuOpen(false); }}>
-          {(profile.roles?.length || 0) > 1 && <div className="workspace-role-links"><span className="nav-label">Switch workspace</span>{profile.roles?.map(role => <Link key={role} href={dashboardPath(role)} className={`sidebar-link${profile.role === role ? " active" : ""}`} aria-current={profile.role === role ? "page" : undefined} title={roles[role]}><LayoutDashboard size={17}/><span className="nav-label">{roles[role]}</span></Link>)}</div>}
+
           <Link
-            className={`sidebar-link${!isUsers && pathname !== "/team" && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation" && pathname !== "/recovered-leads" && pathname !== "/my-recovered-leads" ? " active" : ""}`}
+            className={`sidebar-link${!isUsers && pathname !== "/team-recovery" && pathname !== "/my-recovery" && pathname !== "/team" && !pathname.startsWith("/teams") && !isImports && pathname !== "/sales" && pathname !== "/allocation" && pathname !== "/recovered-leads" && pathname !== "/my-recovered-leads" ? " active" : ""}`}
             aria-current={
               !isUsers &&
+              pathname !== "/team-recovery" && pathname !== "/my-recovery" &&
               pathname !== "/team" &&
               !pathname.startsWith("/teams") &&
               !isImports &&
@@ -132,6 +135,8 @@ export function WorkspaceFrame({
             <span className="nav-label">Overview</span>
           </Link>
           {profile.role === "team_leader" && <Link href="/team" className={`sidebar-link${pathname === "/team" ? " active" : ""}`} aria-current={pathname === "/team" ? "page" : undefined} title="Team" aria-label="Team"><UsersRound size={17}/><span className="nav-label">Team</span></Link>}
+          {profile.role === "team_leader" && <Link href="/team-recovery" className={`sidebar-link${pathname === "/team-recovery" ? " active" : ""}`} aria-current={pathname === "/team-recovery" ? "page" : undefined} title="Recovery" aria-label="Recovery"><UsersRound size={17}/><span className="nav-label">Recovery</span></Link>}
+          {profile.role === "sales_executive" && <Link href="/my-recovery" className={`sidebar-link${pathname === "/my-recovery" ? " active" : ""}`} aria-current={pathname === "/my-recovery" ? "page" : undefined} title="My recovery" aria-label="My recovery"><CircleCheck size={17}/><span className="nav-label">My recovery</span></Link>}
           {profile.role === "main_admin" && (
             <Link
               className={`sidebar-link${isUsers ? " active" : ""}`}
@@ -264,6 +269,8 @@ export function WorkspaceFrame({
             {sidebarCollapsed ? <PanelLeftOpen /> : <PanelLeftClose />}
           </Button>
           <div className="navbar-actions">
+            {(profile.roles?.length || 0) > 1 && <DropdownMenu><DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label="Switch role" title="Switch role"><ArrowLeftRight size={18}/></Button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuLabel>Switch role</DropdownMenuLabel><DropdownMenuSeparator/>{profile.roles?.map(role => <DropdownMenuItem asChild key={role}><Link href={dashboardPath(role)} aria-current={profile.role === role ? "page" : undefined}><span>{roles[role]}</span>{profile.role === role && <Check size={16} className="ml-auto"/>}</Link></DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>}
+
             {profile.roles?.includes("main_admin") && <TeamRegistrationLink teamLead/>}
             {profile.teamId && <TeamRegistrationLink teamId={profile.teamId}/>}
             <div className="desktop-navbar-controls">

@@ -1277,3 +1277,126 @@ test('team leads without a membership see an empty roster without reading other 
   const result = await load('app/api/team-lead/team/route.ts', { user: leader, db: { teamMembership: { findUnique: async () => null } } }).GET();
   assert.equal(result.body.team, null); assert.equal(result.body.employees.length, 0);
 });
+
+test('recovery CSV accepts optional Executive ID, normalizes it and ignores supplied assignment names', () => {
+  const { parseRecoveryCsv } = load('lib/recovery/csv.ts');
+  const { leadColumns } = load('lib/recovery/columns.ts');
+  const keys = Object.keys(leadColumns);
+  assert.equal(keys[keys.indexOf('executiveName') + 1], 'executiveId');
+  assert.equal(keys[keys.indexOf('leadStatus') + 1], 'salesAssignedTo');
+  const header = Object.values(leadColumns).join(',');
+  const values = keys.map(key => key === 'studentName' ? 'Student' : key === 'executiveId' ? ' px062 ' : key === 'executiveName' ? 'CSV executive' : key === 'salesAssignedTo' ? 'Forged name' : '');
+  const [row] = parseRecoveryCsv(header + '\n' + values.join(','));
+  assert.equal(row.executiveId, 'PX062'); assert.equal(row.salesAssignedTo, '');
+  const legacyKeys = keys.filter(key => key !== 'executiveId' && key !== 'salesAssignedTo');
+  const [legacy] = parseRecoveryCsv(legacyKeys.map(key => leadColumns[key]).join(',') + '\n' + legacyKeys.map(key => key === 'studentName' ? 'Student' : '').join(','));
+  assert.equal(legacy.executiveId, ''); assert.equal(legacy.salesAssignedTo, '');
+  assert.throws(() => parseRecoveryCsv(header + ',Executive ID\n' + values.join(',') + ',PX001'), /Executive ID column/);
+});
+
+test('sales My recovery works without a recovery role and scopes the snapshot to the signed-in employee ID', async () => {
+  for (const role of ['sales_executive', 'team_leader']) {
+    let scope;
+    const database = { employeeIdentifier: { findUnique: async ({ where }) => { assert.equal(where.userId, member.id); return { employeeId: 'PX063' }; } }, $queryRaw: async () => [{ latest: 20n, floor: 1n }], recoveryLead: { findMany: async ({ where }) => { scope = where; return [{ id: 'own', studentName: 'Own student' }]; } } };
+    database.$transaction = callback => callback(database);
+    const result = await load('app/api/my-recovery/route.ts', { user: { ...member, app_metadata: { role } }, db: database }).GET({ nextUrl: new URL('http://localhost:3000/api/my-recovery?employeeId=PX999') });
+    assert.equal(result.body.records[0].id, 'own'); assert.equal(scope.executiveId, 'PX063'); assert.equal(scope.salesStatusChangedAt.not, null); assert.equal(scope.assignedTo, undefined);
+  }
+});
+test('sales recovery sync delivers status patches and removes leads reassigned away', async () => {
+  let scopedQuery;
+  const database = { $queryRaw: async query => {
+    if (query.sql.includes(' AS latest')) return [{ latest: 20n, floor: 1n }];
+    scopedQuery = query;
+    return [{ leadId: 'removed', salesOwner: 'PX999', patch: { id: 'removed', studentName: 'Never expose' } }, { leadId: 'own', salesOwner: 'PX063', patch: { id: 'own', leadStatus: 'called' } }];
+  }, recoveryLead: { findMany: () => assert.fail('Should only return patches') } };
+  database.$transaction = callback => callback(database);
+  const result = await load('lib/recovery/sheet-sync.ts').sheetSnapshot(database, null, '12', undefined, 'PX063');
+  assert.match(scopedQuery.sql, /old_executive_id.*new_executive_id/); assert.ok(scopedQuery.values.includes('PX063'));
+  assert.deepEqual(Array.from(result.removedIds), ['removed']); assert.equal(result.records[0].leadStatus, 'called'); assert.equal(JSON.stringify(result).includes('Never expose'), false);
+});
+test('sales My recovery denies unrelated users and returns no leads when Employee ID is missing', async () => {
+  for (const user of [undefined, mainAdmin, { ...member, app_metadata: { role: 'recovery_executive' } }]) {
+    let touched = false;
+    const result = await load('app/api/my-recovery/route.ts', { user, onDb: () => { touched = true; } }).GET({ nextUrl: new URL('http://localhost/api/my-recovery') });
+    assert.equal(result.status, user ? 403 : 401); assert.equal(touched, false);
+  }
+  const result = await load('app/api/my-recovery/route.ts', { user: member, db: { employeeIdentifier: { findUnique: async () => null } } }).GET({ nextUrl: new URL('http://localhost/api/my-recovery') });
+  assert.equal(result.body.records.length, 0);
+});
+
+test('team recovery permits team leads only and scopes every snapshot to their team employee IDs', async () => {
+  const leader = { ...member, app_metadata: { role: 'team_leader' } };
+  let scopeWhere;
+  const database = {
+    teamMembership: {
+      findUnique: async ({ where }) => { assert.equal(where.userId, leader.id); return { teamId: registrationTeam }; },
+      findMany: async ({ where }) => { assert.equal(where.teamId, registrationTeam); return [{ userId: member.id }, { userId: mainAdmin.id }]; },
+    },
+    employeeIdentifier: { findMany: async ({ where }) => { assert.deepEqual(Array.from(where.userId.in), [member.id, mainAdmin.id]); return [{ employeeId: 'PX062' }, { employeeId: 'PX063' }]; } },
+    $queryRaw: async () => [{ latest: 20n, floor: 1n }],
+    recoveryLead: { findMany: async ({ where }) => { scopeWhere = where; return [{ id: 'team-lead' }]; } },
+  };
+  database.$transaction = callback => callback(database);
+  const result = await load('app/api/team-lead/recovery/route.ts', { user: leader, db: database }).GET({ nextUrl: new URL('http://localhost/api/team-lead/recovery?teamId=foreign&cursor=20&scope=forged') });
+  assert.equal(result.body.reset, true); assert.deepEqual(Array.from(scopeWhere.executiveId.in), ['PX062', 'PX063']); assert.equal(scopeWhere.salesStatusChangedAt.not, null); assert.equal(typeof result.body.scope, 'string');
+  for (const user of [undefined, member, mainAdmin]) {
+    let touched = false;
+    const denied = await load('app/api/team-lead/recovery/route.ts', { user, onDb: () => { touched = true; } }).GET({ nextUrl: new URL('http://localhost/api/team-lead/recovery') });
+    assert.equal(denied.status, user ? 403 : 401); assert.equal(touched, false);
+  }
+});
+test('team recovery delta includes all team members but removes leads leaving the team scope', async () => {
+  let query;
+  const database = { $queryRaw: async sql => {
+    if (sql.sql.includes(' AS latest')) return [{ latest: 30n, floor: 1n }];
+    query = sql;
+    return [{ leadId: 'one', salesOwner: 'PX062', patch: { id: 'one', leadStatus: 'called' } }, { leadId: 'two', salesOwner: 'PX063', patch: { id: 'two', paymentStatus: 'paid' } }, { leadId: 'removed', salesOwner: 'PX999', patch: { id: 'removed', studentName: 'Private' } }];
+  } };
+  database.$transaction = callback => callback(database);
+  const result = await load('lib/recovery/sheet-sync.ts').sheetSnapshot(database, null, '20', undefined, ['PX062', 'PX063']);
+  assert.ok(query.values.includes('PX062')); assert.ok(query.values.includes('PX063'));
+  assert.equal(result.records.length, 2); assert.deepEqual(Array.from(result.removedIds), ['removed']); assert.equal(JSON.stringify(result).includes('Private'), false);
+});
+test('team recovery without a team returns an empty reset rather than an unscoped sheet', async () => {
+  const leader = { ...member, app_metadata: { role: 'team_leader' } };
+  const result = await load('app/api/team-lead/recovery/route.ts', { user: leader, db: { teamMembership: { findUnique: async () => null } } }).GET({ nextUrl: new URL('http://localhost/api/team-lead/recovery') });
+  assert.equal(result.body.records.length, 0); assert.equal(result.body.reset, true);
+});
+
+test('team membership changes reset an otherwise unchanged recovery cursor', async () => {
+  let ids = ['PX062', 'PX063'];
+  let snapshots = 0;
+  const database = { teamMembership: { findUnique: async () => ({ teamId: registrationTeam }), findMany: async () => [{ userId: member.id }] }, employeeIdentifier: { findMany: async () => ids.map(employeeId => ({ employeeId })) }, $queryRaw: async () => [{ latest: 20n, floor: 1n }], recoveryLead: { findMany: async () => { snapshots++; return []; } } };
+  database.$transaction = callback => callback(database);
+  const api = load('app/api/team-lead/recovery/route.ts', { user: { ...member, app_metadata: { role: 'team_leader' } }, db: database });
+  const first = await api.GET({ nextUrl: new URL('http://localhost/api/team-lead/recovery') });
+  ids = ['PX062'];
+  const changed = await api.GET({ nextUrl: new URL(`http://localhost/api/team-lead/recovery?cursor=20&scope=${first.body.scope}`) });
+  assert.equal(changed.body.reset, true); assert.notEqual(changed.body.scope, first.body.scope); assert.equal(snapshots, 2);
+});
+
+test('sales recovery visibility follows India midnight on the 6th and 25th including year rollover', () => {
+  const { salesRecoveryVisibility } = load('lib/recovery/sales-visibility.ts');
+  for (const [instant, month, restricted, scope] of [
+    ['2026-11-24T18:29:59Z', 'November', false, '2026-11:all'],
+    ['2026-11-24T18:30:00Z', 'December', true, '2026-12:early'],
+    ['2026-12-05T18:29:59Z', 'December', true, '2026-12:early'],
+    ['2026-12-05T18:30:00Z', 'December', false, '2026-12:all'],
+    ['2026-12-24T18:30:00Z', 'January', true, '2027-01:early'],
+  ]) {
+    const result = salesRecoveryVisibility(new Date(instant));
+    assert.equal(result.month, month); assert.equal(result.scope, scope);
+    assert.equal(result.statuses !== null, restricted);
+    if (restricted) assert.deepEqual(Array.from(result.statuses), ['disconnected', 'talk to executive', 'sold for 1000', 'MPKD']);
+  }
+});
+test('status visibility refresh rechecks only changed scoped leads and removes newly hidden statuses', async () => {
+  let where;
+  const database = { $queryRaw: async query => query.sql.includes(' AS latest') ? [{ latest: 30n, floor: 1n }] : [{ leadId: 'visible', salesOwner: 'PX063', patch: { id: 'visible', leadStatus: 'MPKD' } }, { leadId: 'hidden', salesOwner: 'PX063', patch: { id: 'hidden', leadStatus: 'called' } }], recoveryLead: { findMany: async input => { where = input.where; return [{ id: 'visible', leadStatus: 'MPKD' }]; } } };
+  database.$transaction = callback => callback(database);
+  const result = await load('lib/recovery/sheet-sync.ts').sheetSnapshot(database, 'December', '20', undefined, 'PX063', ['MPKD']);
+  assert.equal(where.selectedMonth, 'December'); assert.equal(where.executiveId, 'PX063'); assert.equal(where.salesStatusChangedAt.not, null);
+  assert.equal(where.leadStatus.mode, 'insensitive'); assert.deepEqual(Array.from(where.id.in), ['visible', 'hidden']);
+  assert.deepEqual(Array.from(result.removedIds), ['hidden']); assert.equal(result.records[0].id, 'visible');
+});

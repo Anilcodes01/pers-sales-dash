@@ -2609,8 +2609,6 @@ body.sheet-column-resizing, body.sheet-column-resizing * { cursor: col-resize !i
 .auth-form .employee-role-options label { display: flex; align-items: center; gap: 9px; }
 .employee-role-options input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary); }
 .employee-role-badges { display: flex; flex-wrap: wrap; gap: 5px; }
-.workspace-role-links { border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 12px; }
-.workspace-role-links > span { display: block; padding: 6px 12px; color: var(--muted-foreground); font-size: 12px; }
 
 .employee-password-cell { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 
@@ -2699,3 +2697,14 @@ body.sheet-column-resizing, body.sheet-column-resizing * { cursor: col-resize !i
 .registration-share { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .registration-share input { flex: 1 1 260px; min-width: 0; }
 .registration-share button { flex-shrink: 0; }
+
+.my-recovery-notice { padding-inline: 16px; }
+.my-recovery-notice p { color: var(--muted-foreground); margin-top: 8px; }
+
+.recovery-employee-filter { display: flex; align-items: center; gap: 8px; min-width: 220px; }
+.recovery-employee-filter > span { font-size: 13px; color: var(--muted-foreground); }
+.recovery-employee-filter [data-slot="select-trigger"] { min-width: 180px; width: auto; }
+@media (max-width: 600px) {
+  .recovery-employee-filter { min-width: 0; width: 100%; }
+  .recovery-employee-filter [data-slot="select-trigger"] { min-width: 0; flex: 1; }
+}
