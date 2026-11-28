@@ -1400,3 +1400,22 @@ test('status visibility refresh rechecks only changed scoped leads and removes n
   assert.equal(where.leadStatus.mode, 'insensitive'); assert.deepEqual(Array.from(where.id.in), ['visible', 'hidden']);
   assert.deepEqual(Array.from(result.removedIds), ['hidden']); assert.equal(result.records[0].id, 'visible');
 });
+
+test('sales recovery editing is blocked in the early period before database access', async () => {
+  let touched = false;
+  const api = load('lib/recovery/sales-edit-access.ts', { user: member, onDb: () => { touched = true; }, modules: { './sales-visibility': { salesRecoveryVisibility: () => ({ statuses: ['MPKD'], month: 'December' }) } } });
+  await assert.rejects(() => api.salesRecoveryEditAccess(), /6th through the 24th/); assert.equal(touched, false);
+});
+test('sales recovery editing is scoped to own Employee ID and a previously activated current batch', async () => {
+  const api = load('lib/recovery/sales-edit-access.ts', { user: member, db: { employeeIdentifier: { findMany: async ({ where }) => { assert.deepEqual(Array.from(where.userId.in), [member.id]); return [{ employeeId: 'PX063' }]; } } }, modules: { './sales-visibility': { salesRecoveryVisibility: () => ({ statuses: null, month: 'December' }) } } });
+  const { scope } = await api.salesRecoveryEditAccess();
+  assert.equal(scope.selectedMonth, 'December'); assert.equal(scope.salesStatusChangedAt.not, null); assert.deepEqual(Array.from(scope.executiveId.in), ['PX063']);
+});
+test('sales recovery status endpoint accepts only lead status and preserves payment fields', async () => {
+  let update;
+  const route = load('app/api/my-recovery/leads/[id]/route.ts', { modules: { '@/lib/recovery/sales-edit-access': { salesRecoveryEditAccess: async () => ({ scope: { executiveId: 'PX063' }, client: { recoveryLead: { updateMany: async input => { update = input; return { count: 1 }; } } } }) } } });
+  const params = { params: Promise.resolve({ id: member.id }) };
+  const result = await route.PATCH(request({ leadStatus: 'discount' }), params);
+  assert.equal(result.body.leadStatus, 'discount'); assert.equal(update.where.executiveId, 'PX063'); assert.equal(update.data.paymentStatus, undefined);
+  assert.equal((await route.PATCH(request({ paymentStatus: 'paid' }), params)).status, 400);
+});

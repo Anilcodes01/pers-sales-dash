@@ -9,9 +9,9 @@ import { RecoveryStatusBadge } from "./recovery-status-badge";
 import { RecoveryCommentCell } from "./recovery-comment-cell";
 import { RecoveryStatusCell } from "./recovery-status-cell";
 export type SheetCellField = "paymentStatus" | "leadStatus" | "comments" | "remainingAmount" | "paymentLinks";
-export const AllocationSheetRow = memo(function AllocationSheetRow({ row, index, offset, selected, executive, readOnly, adminEditable, disabled, allocatedName, onStart, onChecked, onSaved, measure }: {
+export const AllocationSheetRow = memo(function AllocationSheetRow({ row, index, offset, selected, executive, readOnly, salesEditable, adminEditable, disabled, allocatedName, onStart, onChecked, onSaved, measure }: {
   row: AllocationStudent; index: number; offset: number; selected: boolean; executive: boolean;
-  readOnly: boolean; adminEditable: boolean; disabled: boolean; allocatedName: string;
+  readOnly: boolean; salesEditable?: boolean; adminEditable: boolean; disabled: boolean; allocatedName: string;
   onStart: (event: PointerEvent<HTMLTableRowElement>, index: number) => void;
   onChecked: (index: number, checked: boolean) => void;
   onSaved: (id: string, field: SheetCellField, value: string) => void;
@@ -48,10 +48,11 @@ export const AllocationSheetRow = memo(function AllocationSheetRow({ row, index,
                 {(Object.keys(leadColumns) as (keyof LeadValues)[]).map(
                   (key) => (
                     <td key={key} title={row[key]} data-copy-value={row[key]}>
-                      {(adminEditable || (executive && !readOnly)) &&
+                      {(adminEditable || (executive && !readOnly) || (salesEditable && key === "leadStatus")) &&
                       (key === "paymentStatus" || key === "leadStatus") ? (
                         <RecoveryStatusCell
                           admin={adminEditable}
+                          endpoint={salesEditable ? "my-recovery" : undefined}
                           id={row.id}
                           student={row.studentName}
                           field={key}
@@ -68,7 +69,7 @@ export const AllocationSheetRow = memo(function AllocationSheetRow({ row, index,
                         />
                       ) : key === "paymentStatus" || key === "leadStatus" ? (
                         <RecoveryStatusBadge field={key} value={row[key]} />
-                      ) : key === "paymentLinks" && adminEditable ? <RecoveryPaymentLinkEditor id={row.id} value={row[key]} onSaved={value => onSaved?.(row.id, "paymentLinks", value)}/> : key === "remainingAmount" && executive && !readOnly && row.paymentStatus.trim().toLowerCase() !== "paid" && ["discount", "pay in instalments"].includes(row.leadStatus.trim().toLowerCase()) ? <RecoveryAmountCell id={row.id} value={row[key]} onSaved={(amount, link, paymentStatus) => { onSaved?.(row.id, "remainingAmount", amount); onSaved?.(row.id, "paymentLinks", link); if (paymentStatus) onSaved?.(row.id, "paymentStatus", paymentStatus); }}/> : key === "paymentLinks" ? (
+                      ) : key === "paymentLinks" && adminEditable ? <RecoveryPaymentLinkEditor id={row.id} value={row[key]} onSaved={value => onSaved?.(row.id, "paymentLinks", value)}/> : key === "remainingAmount" && (adminEditable || (executive && !readOnly) || salesEditable) && row.paymentStatus.trim().toLowerCase() !== "paid" && (adminEditable || salesEditable || ["discount", "pay in instalments"].includes(row.leadStatus.trim().toLowerCase())) ? <RecoveryAmountCell endpoint={adminEditable ? "recovery-admin" : salesEditable ? "my-recovery" : undefined} id={row.id} value={row[key]} onSaved={(amount, link, paymentStatus) => { onSaved?.(row.id, "remainingAmount", amount); onSaved?.(row.id, "paymentLinks", link); if (paymentStatus) onSaved?.(row.id, "paymentStatus", paymentStatus); }}/> : key === "paymentLinks" ? (
                         <PaymentLinkCell value={row[key]} />
                       ) : key === "comments" && executive && !readOnly ? (
                         <RecoveryCommentCell

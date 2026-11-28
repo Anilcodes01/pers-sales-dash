@@ -33,6 +33,7 @@ export function AllocationSheet({
   disabled,
   executive,
   readOnly = false,
+  salesEditable = false,
   adminEditable = false,
   virtualized = true,
   fillViewport = true,
@@ -47,6 +48,7 @@ export function AllocationSheet({
   disabled: boolean;
   executive: boolean;
   readOnly?: boolean;
+  salesEditable?: boolean;
   adminEditable?: boolean;
   virtualized?: boolean;
   fillViewport?: boolean;
@@ -267,6 +269,7 @@ export function AllocationSheet({
         selected={selectedSet.has(row.id)}
         executive={executive}
         readOnly={readOnly}
+        salesEditable={salesEditable}
         adminEditable={adminEditable}
         disabled={disabled}
         allocatedName={

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
-export function RecoveryAmountCell({ id, value, onSaved }: { id: string; value: string; onSaved: (remainingAmount: string, paymentLinks: string, paymentStatus?: string) => void }) {
+export function RecoveryAmountCell({ id, value, onSaved, endpoint }: { endpoint?: "my-recovery" | "recovery-admin"; id: string; value: string; onSaved: (remainingAmount: string, paymentLinks: string, paymentStatus?: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const [saving, setSaving] = useState(false);
@@ -13,7 +13,7 @@ export function RecoveryAmountCell({ id, value, onSaved }: { id: string; value: 
   async function save() {
     setSaving(true); setError(""); setPendingAmount(null);
     try {
-      const response = await fetch(`/api/recovery-executive/leads/${id}/payment-link`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remainingAmount: draft }) });
+      const response = await fetch(`/api/${endpoint || "recovery-executive"}/leads/${id}/payment-link`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ remainingAmount: draft }) });
       const data = await response.json();
       if (!response.ok) {
         if (typeof data.pendingAmount === "string") setPendingAmount(data.pendingAmount);
