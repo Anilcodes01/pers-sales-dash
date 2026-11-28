@@ -226,7 +226,7 @@ test('skipping a middle row does not let lower rows bypass the top row', async (
 
 test('live payload explicitly enables UPI alongside other methods and has no test description', () => {
   const payload = linkPayload(lead, 150000, 'ref', 'live');
-  assert.equal(payload.view_less, false);
+  assert.equal(Object.hasOwn(payload, 'view_less'), false);
   assert.equal(Object.hasOwn(linkPayload(lead, 150000, 'ref', 'test'), 'view_less'), false);
   assert.deepEqual(payload.options.checkout.method, { upi: true, card: true, netbanking: true, wallet: true });
   assert.equal(payload.notes.mode, 'live');
@@ -268,4 +268,8 @@ You agree to share information entered on this page with PERSEVEX (owner of this
   assert.ok(description.length <= 2048);
   assert.ok(paymentLinkDescription({ amountMentioned: '3500.50' }, 10025).includes('3500.50 AND YOU ARE PAYING RS 100.25'));
   assert.throws(() => paymentLinkDescription({ amountMentioned: '' }, 300000), /Program fee/);
+});
+
+test('unsupported Razorpay fields produce an actionable error without exposing provider data', async () => {
+  await assert.rejects(() => razorpayRequest(config, '', {}, async () => response({ error: { description: 'extra fields sent', metadata: { secret: 'never expose' } } }, 400)), error => !error.retryable && /unsupported request fields/.test(error.message) && !error.message.includes('never expose'));
 });
