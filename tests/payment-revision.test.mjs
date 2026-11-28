@@ -5,7 +5,7 @@ const config = { key: 'rzp_live_example', secret: 'secret', mode: 'live' };
 const oldRemote = () => ({ id: 'plink_old', reference_id: 'old-reference', amount: 300000, currency: 'INR', status: 'created', short_url: 'https://rzp.io/i/old' });
 function fixture(changes = {}) {
   const state = {
-    lead: { id: 'student', assignedTo: 'executive', leadStatus: 'discount', paymentStatus: 'unpaid', remainingAmount: '3000', paymentLinks: 'https://rzp.io/i/old', amountPaid: '1000', studentName: 'Student', studentEmail: '', studentPhone: '', linkChangeToken: null, linkChangeUntil: null, ...changes },
+    lead: { id: 'student', assignedTo: 'executive', leadStatus: 'discount', paymentStatus: 'unpaid', remainingAmount: '3000', paymentLinks: 'https://rzp.io/i/old', amountMentioned: '4500', amountPaid: '1000', studentName: 'Student', studentEmail: '', studentPhone: '', linkChangeToken: null, linkChangeUntil: null, ...changes },
     current: { id: 'record', providerId: 'plink_old', reference: 'old-reference', amountPaise: 300000n, status: 'created', url: 'https://rzp.io/i/old' },
     revision: null, old: oldRemote(), next: null, posts: 0, cancels: 0,
   };
@@ -140,4 +140,10 @@ test('a webhook that marked Paid just before Save refreshes the row instead of r
   const result = await mock(() => assert.fail('Paid row must not call Razorpay'), () => replacePaymentLink(db, config, 'executive', 'student', '30'));
   assert.equal(result.paymentStatus, 'paid'); assert.equal(result.reconciled, true);
   assert.equal(state.lead.remainingAmount, '3000');
+});
+
+test('a missing program fee cannot cancel an existing link or create a replacement', async () => {
+  const { state, db } = fixture({ amountMentioned: '' });
+  await assert.rejects(() => replacePaymentLink(db, config, 'executive', 'student', '2000'), /Program fee/);
+  assert.equal(state.cancels, 0); assert.equal(state.posts, 0);
 });

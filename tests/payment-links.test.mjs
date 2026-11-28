@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { razorpayConfig, paymentAmount, linkPayload, validateLink, razorpayRequest, RazorpayError } from '../lib/recovery/razorpay.mjs';
+import { razorpayConfig, paymentAmount, paymentLinkDescription, linkPayload, validateLink, razorpayRequest, RazorpayError } from '../lib/recovery/razorpay.mjs';
 import { createPaymentRequestGate, paymentRequestRate, GenerationStopped } from '../lib/recovery/payment-request-gate.mjs';
 import { processPaymentBatch, paymentBatchSize, processItemsInSheetOrder } from '../lib/recovery/payment-link-worker.mjs';
 const config = { key: 'rzp_test_example', secret: 'secret', mode: 'test' };
-const lead = { id: 'student-1', studentName: 'Example Student', studentPhone: '9876543210', studentEmail: 'student@example.com', remainingAmount: '1,500', paymentLinks: '', paymentStatus: 'unpaid' };
+const lead = { id: 'student-1', studentName: 'Example Student', studentPhone: '9876543210', studentEmail: 'student@example.com', amountMentioned: '4500', remainingAmount: '1,500', paymentLinks: '', paymentStatus: 'unpaid' };
 const remote = reference => ({ id: 'plink_example', amount: 150000, currency: 'INR', status: 'created', reference_id: reference, short_url: 'https://rzp.io/i/example' });
 const response = (body, status = 200) => new Response(JSON.stringify(body), { status });
 function fixture(overrides = {}) {
@@ -226,9 +226,11 @@ test('skipping a middle row does not let lower rows bypass the top row', async (
 
 test('live payload explicitly enables UPI alongside other methods and has no test description', () => {
   const payload = linkPayload(lead, 150000, 'ref', 'live');
+  assert.equal(payload.view_less, false);
+  assert.equal(Object.hasOwn(linkPayload(lead, 150000, 'ref', 'test'), 'view_less'), false);
   assert.deepEqual(payload.options.checkout.method, { upi: true, card: true, netbanking: true, wallet: true });
   assert.equal(payload.notes.mode, 'live');
-  assert.equal(payload.description, 'Persevex course balance');
+  assert.equal(payload.description, paymentLinkDescription(lead, 150000));
   assert.equal(payload.upi_link, undefined); // Standard link keeps other payment methods.
   assert.deepEqual(payload.notify, { sms: false, email: false });
   assert.equal(linkPayload(lead, 150000, 'ref', 'test').options, undefined);
@@ -247,4 +249,23 @@ test('switching to live supersedes only a tracked test link for the same balance
   }, () => processPaymentBatch(db, live, 'job-1'));
   assert.equal(state.item.status, 'generated');
   assert.equal(state.lead.paymentLinks, 'https://rzp.io/i/example');
+});
+
+test('payment description preserves every approved word while substituting fee and payable amount', () => {
+  const description = paymentLinkDescription({ amountMentioned: '₹4,500/-' }, 300000);
+  assert.equal(description, `Complete Your Registration
+
+TOTAL COST OF THE PROGRAM IS 4500 AND YOU ARE PAYING RS 3000 AS Remaining REGISTRATION
+
+Note- The Transaction should be done only with the official Link Which Shows Persevex any transactions to another the company will not be Responsible for your Money
+
+Contact Us:
+support@persevex.com
++918660128339
+
+Terms & Conditions:
+You agree to share information entered on this page with PERSEVEX (owner of this page) and Razorpay, adhering to applicable laws.`);
+  assert.ok(description.length <= 2048);
+  assert.ok(paymentLinkDescription({ amountMentioned: '3500.50' }, 10025).includes('3500.50 AND YOU ARE PAYING RS 100.25'));
+  assert.throws(() => paymentLinkDescription({ amountMentioned: '' }, 300000), /Program fee/);
 });
